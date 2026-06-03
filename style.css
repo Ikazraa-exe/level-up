@@ -508,6 +508,10 @@ textarea:focus {
   padding: 0 18px;
 }
 
+body[data-theme="light"] .primary-button {
+  color: #ffffff;
+}
+
 .secondary-button {
   border: 1px solid var(--border);
   background: var(--surface-soft);
@@ -525,6 +529,10 @@ textarea:focus {
 
 .primary-button:hover {
   background: #5eead4;
+}
+
+body[data-theme="light"] .primary-button:hover {
+  background: #115e59;
 }
 
 .secondary-button:hover {
@@ -552,6 +560,10 @@ textarea:focus {
   list-style: none;
 }
 
+.task-list.is-reordering {
+  user-select: none;
+}
+
 .task-card .secondary-button {
   width: 100%;
 }
@@ -565,11 +577,69 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-soft);
+  cursor: grab;
   padding: 10px;
+  touch-action: none;
   transition:
     border-color 180ms ease,
     background 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease,
     transform 180ms ease;
+}
+
+.task-item:active {
+  cursor: grabbing;
+}
+
+.task-item.is-dragging {
+  border-color: rgba(45, 212, 191, 0.72);
+  background: rgba(45, 212, 191, 0.12);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  cursor: grabbing;
+  opacity: 0.92;
+  transform: scale(0.99);
+  animation: taskLift 180ms ease both;
+}
+
+.task-item.is-drop-animating {
+  animation: taskDropSettle 280ms ease both;
+}
+
+.is-task-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.is-task-dragging .delete-button,
+.is-task-dragging .task-check {
+  pointer-events: none;
+}
+
+@keyframes taskLift {
+  from {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    transform: scale(1);
+  }
+
+  to {
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+    transform: scale(0.99);
+  }
+}
+
+@keyframes taskDropSettle {
+  0% {
+    transform: scale(0.985);
+  }
+
+  55% {
+    transform: scale(1.012);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .task-item.is-complete {

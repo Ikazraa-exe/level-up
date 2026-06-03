@@ -33,6 +33,8 @@ const state = {
   taskSnapshots: {},
   todayKey: getDateKey(),
   pendingDeleteId: null,
+  drag: null,
+  suppressNextTaskClick: false,
 };
 
 const elements = {
@@ -88,6 +90,8 @@ function init() {
 
 function bindEvents() {
   elements.taskForm.addEventListener("submit", handleAddTask);
+  elements.taskList.addEventListener("click", suppressClickAfterDrag, true);
+  elements.taskList.addEventListener("pointerdown", handleTaskPointerDown);
   elements.taskList.addEventListener("click", handleTaskListClick);
   elements.dailyNotes.addEventListener("input", handleNotesInput);
   elements.exportButton.addEventListener("click", exportProgress);
@@ -104,6 +108,211 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) handleDateChange();
   });
+}
+
+function handleTaskPointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+
+  const taskItem = event.target.closest(".task-item");
+  if (!taskItem || !elements.taskList.contains(taskItem)) return;
+  if (elements.deleteDialog.open) return;
+
+  state.drag = {
+    taskItem,
+    pointerId: event.pointerId,
+    startY: event.clientY,
+    started: false,
+    longPressTimer: window.setTimeout(beginTaskDrag, 160),
+  };
+
+  window.addEventListener("pointermove", handleTaskPointerMove, { passive: false });
+  window.addEventListener("pointerup", handleTaskPointerUp);
+  window.addEventListener("pointercancel", cancelTaskDrag);
+}
+
+function handleTaskPointerMove(event) {
+  const drag = state.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+
+  const distance = Math.abs(event.clientY - drag.startY);
+
+  if (!drag.started && distance >= 8) {
+    beginTaskDrag();
+  }
+
+  if (!drag.started) return;
+
+  event.preventDefault();
+  moveDraggedTask(event.clientY);
+}
+
+function beginTaskDrag() {
+  const drag = state.drag;
+  if (!drag || drag.started) return;
+
+  drag.started = true;
+  drag.taskItem.classList.add("is-dragging");
+  elements.taskList.classList.add("is-reordering");
+  document.body.classList.add("is-task-dragging");
+
+  try {
+    drag.taskItem.setPointerCapture(drag.pointerId);
+  } catch {}
+}
+
+function moveDraggedTask(clientY) {
+  const previousRects = getTaskItemRects();
+  const afterElement = getTaskAfterDragPosition(clientY);
+  const draggingItem = state.drag.taskItem;
+
+  if (!afterElement) {
+    elements.taskList.append(draggingItem);
+    animateTaskLayout(previousRects);
+    return;
+  }
+
+  elements.taskList.insertBefore(draggingItem, afterElement);
+  animateTaskLayout(previousRects);
+}
+
+function getTaskItemRects() {
+  return new Map(
+    [...elements.taskList.querySelectorAll(".task-item")].map((item) => [
+      item,
+      item.getBoundingClientRect(),
+    ]),
+  );
+}
+
+function animateTaskLayout(previousRects) {
+  elements.taskList
+    .querySelectorAll(".task-item:not(.is-dragging)")
+    .forEach((item) => {
+      const previousRect = previousRects.get(item);
+      if (!previousRect) return;
+
+      const currentRect = item.getBoundingClientRect();
+      const deltaY = previousRect.top - currentRect.top;
+
+      if (Math.abs(deltaY) < 1) return;
+
+      item.animate(
+        [
+          { transform: `translateY(${deltaY}px)` },
+          { transform: "translateY(0)" },
+        ],
+        {
+          duration: 180,
+          easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+        },
+      );
+    });
+}
+
+function getTaskAfterDragPosition(clientY) {
+  const taskItems = [...elements.taskList.querySelectorAll(".task-item:not(.is-dragging)")];
+
+  return taskItems.reduce(
+    (closest, item) => {
+      const box = item.getBoundingClientRect();
+      const offset = clientY - box.top - box.height / 2;
+
+      if (offset < 0 && offset > closest.offset) {
+        return { offset, element: item };
+      }
+
+      return closest;
+    },
+    { offset: Number.NEGATIVE_INFINITY, element: null },
+  ).element;
+}
+
+function handleTaskPointerUp(event) {
+  const drag = state.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const droppedItem = drag.taskItem;
+  const didDrag = drag.started;
+
+  if (didDrag) {
+    event.preventDefault();
+    persistTaskOrderFromDom();
+    suppressNextTaskClickBriefly();
+  }
+
+  cleanupTaskDrag();
+
+  if (didDrag) {
+    animateTaskDrop(droppedItem);
+  }
+}
+
+function animateTaskDrop(taskItem) {
+  taskItem.classList.add("is-drop-animating");
+
+  window.setTimeout(() => {
+    taskItem.classList.remove("is-drop-animating");
+  }, 280);
+}
+
+function cancelTaskDrag(event) {
+  const drag = state.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+
+  cleanupTaskDrag();
+  renderTasks();
+}
+
+function cleanupTaskDrag() {
+  const drag = state.drag;
+  if (!drag) return;
+
+  window.clearTimeout(drag.longPressTimer);
+  drag.taskItem.classList.remove("is-dragging");
+  elements.taskList.classList.remove("is-reordering");
+  document.body.classList.remove("is-task-dragging");
+
+  try {
+    drag.taskItem.releasePointerCapture(drag.pointerId);
+  } catch {}
+
+  window.removeEventListener("pointermove", handleTaskPointerMove);
+  window.removeEventListener("pointerup", handleTaskPointerUp);
+  window.removeEventListener("pointercancel", cancelTaskDrag);
+  state.drag = null;
+}
+
+function persistTaskOrderFromDom() {
+  const orderedIds = [...elements.taskList.querySelectorAll(".task-item")].map(
+    (item) => item.dataset.taskId,
+  );
+  const tasksById = new Map(state.tasks.map((task) => [task.id, task]));
+  const reorderedTasks = orderedIds
+    .map((taskId) => tasksById.get(taskId))
+    .filter(Boolean);
+
+  if (reorderedTasks.length !== state.tasks.length) return;
+
+  state.tasks = reorderedTasks;
+  syncTodaySnapshot();
+  saveTasks();
+  saveTaskSnapshots();
+  renderHistory();
+}
+
+function suppressNextTaskClickBriefly() {
+  state.suppressNextTaskClick = true;
+
+  window.setTimeout(() => {
+    state.suppressNextTaskClick = false;
+  }, 250);
+}
+
+function suppressClickAfterDrag(event) {
+  if (!state.suppressNextTaskClick) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  state.suppressNextTaskClick = false;
 }
 
 function loadState() {
@@ -482,14 +691,29 @@ function exportProgress() {
 }
 
 function createProgressCanvas(data) {
-  const width = 1080;
-  const padding = 72;
-  const taskLineHeight = 46;
-  const noteLines = wrapCanvasText(data.notes, width - padding * 2, "28px Arial");
-  const taskAreaHeight = Math.max(1, data.tasks.length) * taskLineHeight;
+  const width = 1200;
+  const padding = 80;
+  const contentWidth = width - padding * 2;
+  const taskTextWidth = contentWidth - 220;
+  const taskRows = data.tasks.map((task) => {
+    const lines = wrapCanvasText(task.text, taskTextWidth, "30px Arial");
+
+    return {
+      ...task,
+      lines,
+      height: Math.max(74, 28 + lines.length * 34),
+    };
+  });
+  const noteLines = wrapCanvasText(data.notes, contentWidth - 56, "30px Arial");
+  const taskRowsHeight =
+    taskRows.length === 0
+      ? 74
+      : taskRows.reduce((total, task) => total + task.height, 0) +
+        (taskRows.length - 1) * 14;
+  const notesBoxHeight = Math.max(130, noteLines.length * 38 + 62);
   const height = Math.max(
-    980,
-    520 + taskAreaHeight + noteLines.length * 36,
+    1160,
+    padding + 275 + 48 + 126 + 72 + taskRowsHeight + 82 + notesBoxHeight + 80,
   );
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -498,50 +722,57 @@ function createProgressCanvas(data) {
   canvas.height = height;
 
   drawCanvasBackground(context, width, height);
-  drawCanvasHeader(context, data, padding);
-  drawCanvasStats(context, data.stats, padding, 300);
-  drawCanvasTasks(context, data.tasks, padding, 500, taskLineHeight);
-  drawCanvasNotes(context, noteLines, padding, 540 + taskAreaHeight);
+
+  let y = padding;
+  y = drawCanvasHeader(context, data, padding, contentWidth, y);
+  y += 48;
+  y = drawCanvasStats(context, data.stats, padding, contentWidth, y);
+  y += 72;
+  y = drawCanvasTasks(context, taskRows, padding, contentWidth, y);
+  y += 66;
+  drawCanvasNotes(context, noteLines, padding, contentWidth, y, notesBoxHeight);
 
   return canvas;
 }
 
 function drawCanvasBackground(context, width, height) {
-  const gradient = context.createLinearGradient(0, 0, width, height);
-
-  gradient.addColorStop(0, "#0d0e10");
-  gradient.addColorStop(0.55, "#16181d");
-  gradient.addColorStop(1, "#111316");
-  context.fillStyle = gradient;
+  context.fillStyle = "#f6fbf8";
   context.fillRect(0, 0, width, height);
 
-  context.fillStyle = "rgba(45, 212, 191, 0.12)";
+  context.fillStyle = "rgba(15, 118, 110, 0.12)";
   context.beginPath();
-  context.arc(80, 80, 260, 0, Math.PI * 2);
+  context.arc(70, 70, 300, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = "rgba(217, 119, 6, 0.08)";
+  context.beginPath();
+  context.arc(width, height, 360, 0, Math.PI * 2);
   context.fill();
 }
 
-function drawCanvasHeader(context, data, padding) {
-  context.fillStyle = "#2dd4bf";
+function drawCanvasHeader(context, data, padding, contentWidth, y) {
+  context.fillStyle = "#0f766e";
   context.font = "700 26px Arial";
-  context.fillText("PERSONAL PRODUCTIVITY", padding, 86);
+  context.fillText("PERSONAL PRODUCTIVITY", padding, y);
 
-  context.fillStyle = "#f2f6fb";
-  context.font = "800 74px Arial";
-  context.fillText("DAILY LEVEL UP", padding, 172);
+  context.fillStyle = "#111827";
+  context.font = "800 76px Arial";
+  context.fillText("DAILY LEVEL UP", padding, y + 86);
 
-  context.fillStyle = "#9ca3af";
+  context.fillStyle = "#64748b";
   context.font = "28px Arial";
-  context.fillText(data.formattedDate, padding, 220);
+  context.fillText(data.formattedDate, padding, y + 132);
 
-  context.fillStyle = "#c4cedd";
-  context.font = "30px Arial";
-  context.fillText(`Progress hari ini: ${data.stats.percent}%`, padding, 278);
+  context.fillStyle = "#334155";
+  context.font = "32px Arial";
+  context.fillText(`Progress hari ini: ${data.stats.percent}%`, padding, y + 196);
 
-  drawCanvasProgress(context, padding, 305, 936, 18, data.stats.percent);
+  drawCanvasProgress(context, padding, y + 226, contentWidth, 20, data.stats.percent);
+
+  return y + 246;
 }
 
-function drawCanvasStats(context, stats, padding, y) {
+function drawCanvasStats(context, stats, padding, contentWidth, y) {
   const cards = [
     ["Total", stats.total],
     ["Selesai", stats.completed],
@@ -549,75 +780,119 @@ function drawCanvasStats(context, stats, padding, y) {
     ["Progress", `${stats.percent}%`],
   ];
   const gap = 18;
-  const cardWidth = (1080 - padding * 2 - gap * 3) / 4;
+  const cardWidth = (contentWidth - gap * 3) / 4;
 
   cards.forEach(([label, value], index) => {
     const x = padding + index * (cardWidth + gap);
 
-    drawRoundRect(context, x, y, cardWidth, 118, 12, "#111316", "#30343a");
-    context.fillStyle = "#9ca3af";
+    drawRoundRect(context, x, y, cardWidth, 126, 14, "#ffffff", "#d8e0e8");
+    context.fillStyle = "#64748b";
     context.font = "24px Arial";
-    context.fillText(label, x + 24, y + 42);
+    context.fillText(label, x + 24, y + 46);
 
-    context.fillStyle = "#f2f6fb";
-    context.font = "800 38px Arial";
-    context.fillText(String(value), x + 24, y + 88);
+    context.fillStyle = "#111827";
+    context.font = "800 40px Arial";
+    context.fillText(String(value), x + 24, y + 94);
   });
+
+  return y + 126;
 }
 
-function drawCanvasTasks(context, tasks, padding, startY, lineHeight) {
-  context.fillStyle = "#2dd4bf";
+function drawCanvasTasks(context, taskRows, padding, contentWidth, y) {
+  context.fillStyle = "#0f766e";
   context.font = "700 24px Arial";
-  context.fillText("DAILY TASK", padding, startY - 36);
+  context.fillText("DAILY TASK", padding, y);
 
-  if (tasks.length === 0) {
-    context.fillStyle = "#9ca3af";
+  let currentY = y + 28;
+
+  if (taskRows.length === 0) {
+    drawRoundRect(context, padding, currentY, contentWidth, 74, 14, "#ffffff", "#d8e0e8");
+    context.fillStyle = "#64748b";
     context.font = "28px Arial";
-    context.fillText("Belum ada task.", padding, startY + 8);
-    return;
+    context.fillText("Belum ada task.", padding + 28, currentY + 46);
+    return currentY + 74;
   }
 
-  tasks.forEach((task, index) => {
-    const y = startY + index * lineHeight;
-    const mark = task.completed ? "OK" : "--";
-    const status = task.completed ? "Selesai" : "Belum";
+  taskRows.forEach((task) => {
+    drawRoundRect(context, padding, currentY, contentWidth, task.height, 14, "#ffffff", "#d8e0e8");
+    drawCanvasTaskStatus(context, padding + 32, currentY + 36, task.completed);
 
-    context.fillStyle = task.completed ? "#2dd4bf" : "#9ca3af";
-    context.font = "700 28px Arial";
-    context.fillText(mark, padding, y);
+    context.fillStyle = "#111827";
+    context.font = "30px Arial";
+    task.lines.forEach((line, index) => {
+      context.fillText(line, padding + 76, currentY + 42 + index * 34);
+    });
 
-    context.fillStyle = "#f2f6fb";
-    context.font = "28px Arial";
-    context.fillText(task.text, padding + 44, y);
+    drawCanvasStatusPill(
+      context,
+      padding + contentWidth - 144,
+      currentY + 22,
+      task.completed ? "Selesai" : "Belum",
+      task.completed,
+    );
 
-    context.fillStyle = task.completed ? "#2dd4bf" : "#9ca3af";
-    context.font = "24px Arial";
-    context.fillText(status, 890, y);
+    currentY += task.height + 14;
   });
+
+  return currentY - 14;
 }
 
-function drawCanvasNotes(context, noteLines, padding, startY) {
-  context.fillStyle = "#2dd4bf";
+function drawCanvasTaskStatus(context, x, y, isComplete) {
+  context.beginPath();
+  context.arc(x, y, 16, 0, Math.PI * 2);
+  context.fillStyle = isComplete ? "#0f766e" : "#ffffff";
+  context.fill();
+  context.strokeStyle = isComplete ? "#0f766e" : "#cbd5e1";
+  context.lineWidth = 3;
+  context.stroke();
+
+  if (!isComplete) return;
+
+  context.beginPath();
+  context.moveTo(x - 7, y);
+  context.lineTo(x - 1, y + 6);
+  context.lineTo(x + 9, y - 8);
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 4;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.stroke();
+}
+
+function drawCanvasStatusPill(context, x, y, text, isComplete) {
+  const fill = isComplete ? "#d1fae5" : "#f1f5f9";
+  const textColor = isComplete ? "#0f766e" : "#64748b";
+
+  drawRoundRect(context, x, y, 116, 34, 17, fill);
+  context.fillStyle = textColor;
+  context.font = "700 20px Arial";
+  context.textAlign = "center";
+  context.fillText(text, x + 58, y + 23);
+  context.textAlign = "left";
+}
+
+function drawCanvasNotes(context, noteLines, padding, contentWidth, y, notesBoxHeight) {
+  context.fillStyle = "#0f766e";
   context.font = "700 24px Arial";
-  context.fillText("DAILY NOTES", padding, startY);
+  context.fillText("DAILY NOTES", padding, y);
 
-  drawRoundRect(context, padding, startY + 24, 936, noteLines.length * 36 + 52, 12, "#111316", "#30343a");
+  drawRoundRect(context, padding, y + 28, contentWidth, notesBoxHeight, 14, "#ffffff", "#d8e0e8");
 
-  context.fillStyle = "#c4cedd";
-  context.font = "28px Arial";
+  context.fillStyle = "#334155";
+  context.font = "30px Arial";
   noteLines.forEach((line, index) => {
-    context.fillText(line, padding + 24, startY + 76 + index * 36);
+    context.fillText(line, padding + 28, y + 82 + index * 38);
   });
 }
 
 function drawCanvasProgress(context, x, y, width, height, percent) {
-  drawRoundRect(context, x, y, width, height, height / 2, "#0b0d10");
+  drawRoundRect(context, x, y, width, height, height / 2, "#e5e7eb");
 
   if (percent === 0) return;
 
   const fillGradient = context.createLinearGradient(x, y, x + width, y);
-  fillGradient.addColorStop(0, "#2dd4bf");
-  fillGradient.addColorStop(1, "#fbbf24");
+  fillGradient.addColorStop(0, "#0f766e");
+  fillGradient.addColorStop(1, "#d97706");
   drawRoundRect(
     context,
     x,
@@ -645,30 +920,60 @@ function drawRoundRect(context, x, y, width, height, radius, fillStyle, strokeSt
 function wrapCanvasText(text, maxWidth, font) {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
-  const paragraphs = text.split("\n");
+  const paragraphs = String(text).split("\n");
   const lines = [];
 
   context.font = font;
 
   paragraphs.forEach((paragraph) => {
-    const words = paragraph.trim().split(/\s+/);
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
     let line = "";
 
-    words.forEach((word) => {
-      const nextLine = line ? `${line} ${word}` : word;
+    if (words.length === 0) {
+      lines.push("");
+      return;
+    }
 
-      if (context.measureText(nextLine).width > maxWidth && line) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = nextLine;
-      }
+    words.forEach((word) => {
+      const chunks = splitLongCanvasWord(context, word, maxWidth);
+
+      chunks.forEach((chunk) => {
+        const nextLine = line ? `${line} ${chunk}` : chunk;
+
+        if (context.measureText(nextLine).width > maxWidth && line) {
+          lines.push(line);
+          line = chunk;
+        } else {
+          line = nextLine;
+        }
+      });
     });
 
-    lines.push(line || "");
+    if (line) lines.push(line);
   });
 
   return lines;
+}
+
+function splitLongCanvasWord(context, word, maxWidth) {
+  if (context.measureText(word).width <= maxWidth) return [word];
+
+  const chunks = [];
+  let chunk = "";
+
+  [...word].forEach((character) => {
+    const nextChunk = chunk + character;
+
+    if (context.measureText(nextChunk).width > maxWidth && chunk) {
+      chunks.push(chunk);
+      chunk = character;
+    } else {
+      chunk = nextChunk;
+    }
+  });
+
+  if (chunk) chunks.push(chunk);
+  return chunks;
 }
 
 function getTodayCompletedIds() {

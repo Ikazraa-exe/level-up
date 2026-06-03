@@ -7,7 +7,7 @@ Project ini dibuat dengan **HTML, CSS, dan JavaScript murni**. Tidak ada framewo
 ## Highlight
 
 - Dark mode dan light mode dengan switch icon bulan/matahari.
-- Daily task dengan tambah, hapus, checklist, dan konfirmasi sebelum menghapus.
+- Daily task dengan tambah, hapus, checklist, drag-and-drop reorder, dan konfirmasi sebelum menghapus.
 - Progress bar dan statistik harian otomatis.
 - Statistik mingguan dan bulanan.
 - Daily notes yang tersimpan per tanggal.
@@ -36,6 +36,8 @@ Untuk membuat tampilan repository makin menarik, tambahkan screenshot aplikasi d
 ### Daily Task
 
 Kelola checklist harian dengan cepat. Task default sudah tersedia saat pertama kali aplikasi dibuka, dan kamu tetap bisa menambah atau menghapus task sesuai rutinitas pribadi.
+
+Task juga bisa diurutkan ulang dengan hold lalu drag ke atas atau ke bawah.
 
 ### Daily Notes
 
