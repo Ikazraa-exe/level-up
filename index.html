@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DAILY LEVEL UP</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body data-theme="dark">
+    <main class="app-shell">
+      <header class="hero-card">
+        <div class="hero-toolbar">
+          <p class="eyebrow">Personal Productivity</p>
+          <button id="themeToggle" class="theme-toggle" type="button" aria-label="Ganti ke light mode">
+            <svg class="theme-icon moon-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M20 15.8A8.5 8.5 0 0 1 8.2 4 8.5 8.5 0 1 0 20 15.8Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg class="theme-icon sun-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" />
+              <path
+                d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="hero-main">
+          <h1>DAILY LEVEL UP</h1>
+          <time id="todayDate" datetime=""></time>
+        </div>
+        <p id="dailyQuote" class="quote"></p>
+      </header>
+
+      <section class="progress-card" aria-labelledby="progressTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Progress Hari Ini</p>
+            <h2 id="progressTitle">Naik level sedikit lagi</h2>
+          </div>
+          <strong id="progressPercent">0%</strong>
+        </div>
+
+        <div class="progress-track" aria-label="Progress task selesai">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+
+        <div class="stats-grid" aria-label="Statistik harian">
+          <article class="stat-item">
+            <span>Total</span>
+            <strong id="totalTasks">0</strong>
+          </article>
+          <article class="stat-item">
+            <span>Selesai</span>
+            <strong id="completedTasks">0</strong>
+          </article>
+          <article class="stat-item">
+            <span>Belum</span>
+            <strong id="remainingTasks">0</strong>
+          </article>
+          <article class="stat-item">
+            <span>Progress</span>
+            <strong id="statPercent">0%</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="period-card" aria-labelledby="periodTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Statistik Periodik</p>
+            <h2 id="periodTitle">Mingguan & Bulanan</h2>
+          </div>
+        </div>
+
+        <div class="period-grid" aria-label="Statistik mingguan dan bulanan">
+          <article class="period-item">
+            <div class="period-heading">
+              <span>Minggu Ini</span>
+              <strong id="weeklyPercent">0%</strong>
+            </div>
+            <div class="mini-progress" aria-label="Progress mingguan">
+              <div id="weeklyFill" class="mini-progress-fill"></div>
+            </div>
+            <p>
+              <span id="weeklyCompleted">0</span>/<span id="weeklyTarget">0</span>
+              checklist selesai
+            </p>
+          </article>
+
+          <article class="period-item">
+            <div class="period-heading">
+              <span>Bulan Ini</span>
+              <strong id="monthlyPercent">0%</strong>
+            </div>
+            <div class="mini-progress" aria-label="Progress bulanan">
+              <div id="monthlyFill" class="mini-progress-fill"></div>
+            </div>
+            <p>
+              <span id="monthlyCompleted">0</span>/<span id="monthlyTarget">0</span>
+              checklist selesai
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="task-card" aria-labelledby="taskTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Daily Task</p>
+            <h2 id="taskTitle">Checklist</h2>
+          </div>
+          <button id="exportButton" class="secondary-button" type="button">
+            Export Progress
+          </button>
+        </div>
+
+        <form id="taskForm" class="task-form" autocomplete="off">
+          <label class="sr-only" for="taskInput">Tambah task baru</label>
+          <input
+            id="taskInput"
+            type="text"
+            placeholder="Tambah task baru..."
+            maxlength="80"
+            required
+          />
+          <button class="primary-button" type="submit">Tambah</button>
+        </form>
+
+        <ul id="taskList" class="task-list" aria-live="polite"></ul>
+      </section>
+
+      <section class="notes-card" aria-labelledby="notesTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Daily Notes</p>
+            <h2 id="notesTitle">Catatan hari ini</h2>
+          </div>
+          <span id="notesStatus" class="save-status">Tersimpan</span>
+        </div>
+
+        <label class="sr-only" for="dailyNotes">Catatan harian</label>
+        <textarea
+          id="dailyNotes"
+          rows="7"
+          placeholder="Tulis refleksi, ide, atau hal penting hari ini..."
+        ></textarea>
+      </section>
+
+      <section class="history-card" aria-labelledby="historyTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">History</p>
+            <h2 id="historyTitle">Riwayat Harian</h2>
+          </div>
+          <div class="history-date-control">
+            <label for="historyDate">Tanggal</label>
+            <input id="historyDate" type="date" />
+          </div>
+        </div>
+
+        <div class="history-summary" aria-label="Ringkasan history">
+          <article>
+            <span>Total</span>
+            <strong id="historyTotal">0</strong>
+          </article>
+          <article>
+            <span>Selesai</span>
+            <strong id="historyCompleted">0</strong>
+          </article>
+          <article>
+            <span>Belum</span>
+            <strong id="historyRemaining">0</strong>
+          </article>
+          <article>
+            <span>Progress</span>
+            <strong id="historyPercent">0%</strong>
+          </article>
+        </div>
+
+        <ul id="historyTaskList" class="history-list" aria-live="polite"></ul>
+
+        <article class="history-notes">
+          <span>Daily Notes</span>
+          <p id="historyNotes">Belum ada catatan untuk tanggal ini.</p>
+        </article>
+      </section>
+    </main>
+
+    <dialog id="deleteDialog" class="confirm-dialog" aria-labelledby="deleteDialogTitle">
+      <div class="confirm-panel">
+        <p class="eyebrow">Konfirmasi</p>
+        <h2 id="deleteDialogTitle">Hapus task?</h2>
+        <p class="confirm-copy">
+          Task <strong id="deleteTaskName"></strong> akan dihapus dari daftar.
+          Lanjutkan?
+        </p>
+        <div class="confirm-actions">
+          <button id="cancelDeleteButton" class="secondary-button dialog-button" type="button">
+            Batal
+          </button>
+          <button id="confirmDeleteButton" class="danger-button dialog-button" type="button">
+            Hapus
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="script.js"></script>
+  </body>
+</html>
