@@ -10,6 +10,9 @@ Project ini dibuat dengan **HTML, CSS, dan JavaScript murni**. Tidak ada framewo
 - Daily task dengan tambah, hapus, checklist, drag-and-drop reorder, dan konfirmasi sebelum menghapus.
 - Progress bar dan statistik harian otomatis.
 - Statistik mingguan dan bulanan.
+- Task khusus mingguan dengan highlight otomatis untuk hari ini.
+- Checklist task khusus hari ini agar program tambahan tetap terpantau.
+- Tombol panduan interaktif dan tombol kembali ke atas.
 - Daily notes yang tersimpan per tanggal.
 - History read-only untuk melihat task dan catatan dari tanggal sebelumnya.
 - Export progress harian ke format `.png`.
@@ -38,6 +41,12 @@ Untuk membuat tampilan repository makin menarik, tambahkan screenshot aplikasi d
 Kelola checklist harian dengan cepat. Task default sudah tersedia saat pertama kali aplikasi dibuka, dan kamu tetap bisa menambah atau menghapus task sesuai rutinitas pribadi.
 
 Task juga bisa diurutkan ulang dengan hold lalu drag ke atas atau ke bawah.
+
+### Task Khusus Mingguan
+
+Buat program berbeda untuk setiap hari. Misalnya Senin berisi push up dan plank, sementara Selasa punya program lain. Kotak hari ini otomatis di-highlight agar mudah melihat jadwal khusus yang perlu diperhatikan.
+
+Task khusus di hari ini bisa dicentang untuk menandai mana yang sudah dikerjakan. Status checklist khusus disimpan per tanggal.
 
 ### Daily Notes
 
@@ -135,6 +144,7 @@ Project ini sederhana, tapi punya cukup banyak konsep frontend yang berguna:
 - Theme switching
 - Canvas export
 - UI state management sederhana
+- Guided tour sederhana
 
 ## Pengembangan Lanjutan
 

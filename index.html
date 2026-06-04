@@ -138,6 +138,17 @@
         <ul id="taskList" class="task-list" aria-live="polite"></ul>
       </section>
 
+      <section class="special-card" aria-labelledby="specialTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Task Khusus</p>
+            <h2 id="specialTitle">Program Mingguan</h2>
+          </div>
+        </div>
+
+        <div id="specialWeekGrid" class="special-week-grid" aria-live="polite"></div>
+      </section>
+
       <section class="notes-card" aria-labelledby="notesTitle">
         <div class="section-heading">
           <div>
@@ -194,6 +205,34 @@
         </article>
       </section>
     </main>
+
+    <div class="floating-actions" aria-label="Aksi cepat">
+      <button id="guideButton" class="floating-button" type="button" aria-label="Buka panduan">
+        ?
+      </button>
+      <button id="toTopButton" class="floating-button" type="button" aria-label="Kembali ke atas">
+        Top
+      </button>
+    </div>
+
+    <div id="tourOverlay" class="tour-overlay" hidden>
+      <article class="tour-card" role="dialog" aria-labelledby="tourTitle" aria-modal="true">
+        <p id="tourStepCounter" class="tour-counter">1/1</p>
+        <h2 id="tourTitle">Panduan</h2>
+        <p id="tourDescription"></p>
+        <div class="tour-actions">
+          <button id="tourPrevButton" class="secondary-button dialog-button" type="button">
+            Previous
+          </button>
+          <button id="tourSkipButton" class="secondary-button dialog-button" type="button">
+            Skip
+          </button>
+          <button id="tourNextButton" class="primary-button dialog-button" type="button">
+            Next
+          </button>
+        </div>
+      </article>
+    </div>
 
     <dialog id="deleteDialog" class="confirm-dialog" aria-labelledby="deleteDialogTitle">
       <div class="confirm-panel">

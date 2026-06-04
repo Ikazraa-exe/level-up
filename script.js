@@ -3,6 +3,8 @@ const STORAGE_KEYS = {
   completions: "daily-level-up:completions",
   notes: "daily-level-up:notes",
   taskSnapshots: "daily-level-up:task-snapshots",
+  specialTasks: "daily-level-up:special-tasks",
+  specialCompletions: "daily-level-up:special-completions",
   lastQuote: "daily-level-up:last-quote",
   theme: "daily-level-up:theme",
 };
@@ -26,15 +28,68 @@ const QUOTES = [
   "Disiplin sederhana mengalahkan motivasi yang datang sesekali.",
 ];
 
+const WEEK_DAYS = [
+  { key: "monday", label: "Senin" },
+  { key: "tuesday", label: "Selasa" },
+  { key: "wednesday", label: "Rabu" },
+  { key: "thursday", label: "Kamis" },
+  { key: "friday", label: "Jumat" },
+  { key: "saturday", label: "Sabtu" },
+  { key: "sunday", label: "Minggu" },
+];
+
+const TOUR_STEPS = [
+  {
+    selector: ".hero-card",
+    title: "Header",
+    description: "Di sini kamu melihat tanggal hari ini, quote motivasi, dan tombol switch dark atau light mode.",
+  },
+  {
+    selector: ".progress-card",
+    title: "Progress Harian",
+    description: "Bagian ini merangkum progress checklist wajib hari ini dalam bentuk persen dan progress bar.",
+  },
+  {
+    selector: ".period-card",
+    title: "Statistik Periodik",
+    description: "Pantau akumulasi checklist selesai untuk minggu berjalan dan bulan berjalan.",
+  },
+  {
+    selector: ".task-card",
+    title: "Daily Task",
+    description: "Ini rutinitas wajib harian. Kamu bisa tambah, checklist, hapus, export, dan drag untuk mengurutkan task.",
+  },
+  {
+    selector: ".special-card",
+    title: "Task Khusus",
+    description: "Atur program berbeda untuk tiap hari. Hari ini otomatis disorot, dan task khusus juga bisa dicentang.",
+  },
+  {
+    selector: ".notes-card",
+    title: "Daily Notes",
+    description: "Tulis catatan harian. Notes tersimpan otomatis dan berbeda untuk setiap tanggal.",
+  },
+  {
+    selector: ".history-card",
+    title: "History",
+    description: "Pilih tanggal untuk melihat ulang task, status checklist, progress, dan catatan hari sebelumnya.",
+  },
+];
+
 const state = {
   tasks: [],
   completions: {},
   notes: {},
   taskSnapshots: {},
+  specialTasks: {},
+  specialCompletions: {},
   todayKey: getDateKey(),
   pendingDeleteId: null,
+  pendingDeleteType: "daily",
+  pendingDeleteDayKey: null,
   drag: null,
   suppressNextTaskClick: false,
+  tourIndex: 0,
 };
 
 const elements = {
@@ -57,6 +112,7 @@ const elements = {
   taskForm: document.querySelector("#taskForm"),
   taskInput: document.querySelector("#taskInput"),
   taskList: document.querySelector("#taskList"),
+  specialWeekGrid: document.querySelector("#specialWeekGrid"),
   dailyNotes: document.querySelector("#dailyNotes"),
   notesStatus: document.querySelector("#notesStatus"),
   exportButton: document.querySelector("#exportButton"),
@@ -72,6 +128,15 @@ const elements = {
   deleteTaskName: document.querySelector("#deleteTaskName"),
   cancelDeleteButton: document.querySelector("#cancelDeleteButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
+  guideButton: document.querySelector("#guideButton"),
+  toTopButton: document.querySelector("#toTopButton"),
+  tourOverlay: document.querySelector("#tourOverlay"),
+  tourStepCounter: document.querySelector("#tourStepCounter"),
+  tourTitle: document.querySelector("#tourTitle"),
+  tourDescription: document.querySelector("#tourDescription"),
+  tourPrevButton: document.querySelector("#tourPrevButton"),
+  tourSkipButton: document.querySelector("#tourSkipButton"),
+  tourNextButton: document.querySelector("#tourNextButton"),
 };
 
 init();
@@ -82,6 +147,7 @@ function init() {
   setupHistoryDateInput();
   renderHeader();
   renderTasks();
+  renderSpecialTasks();
   renderNotes();
   renderHistory();
   bindEvents();
@@ -93,9 +159,17 @@ function bindEvents() {
   elements.taskList.addEventListener("click", suppressClickAfterDrag, true);
   elements.taskList.addEventListener("pointerdown", handleTaskPointerDown);
   elements.taskList.addEventListener("click", handleTaskListClick);
+  elements.specialWeekGrid.addEventListener("submit", handleSpecialTaskSubmit);
+  elements.specialWeekGrid.addEventListener("click", handleSpecialTaskClick);
   elements.dailyNotes.addEventListener("input", handleNotesInput);
   elements.exportButton.addEventListener("click", exportProgress);
   elements.themeToggle.addEventListener("click", toggleTheme);
+  elements.guideButton.addEventListener("click", startTour);
+  elements.toTopButton.addEventListener("click", scrollToTop);
+  elements.tourPrevButton.addEventListener("click", showPreviousTourStep);
+  elements.tourSkipButton.addEventListener("click", endTour);
+  elements.tourNextButton.addEventListener("click", showNextTourStep);
+  elements.tourOverlay.addEventListener("click", handleTourOverlayClick);
   elements.historyDate.addEventListener("change", renderHistory);
   elements.cancelDeleteButton.addEventListener("click", closeDeleteDialog);
   elements.confirmDeleteButton.addEventListener("click", confirmDeleteTask);
@@ -108,6 +182,75 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) handleDateChange();
   });
+}
+
+function scrollToTop() {
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth",
+  });
+}
+
+function startTour() {
+  state.tourIndex = 0;
+  elements.tourOverlay.hidden = false;
+  renderTourStep();
+}
+
+function showNextTourStep() {
+  if (state.tourIndex >= TOUR_STEPS.length - 1) {
+    endTour();
+    return;
+  }
+
+  state.tourIndex += 1;
+  renderTourStep();
+}
+
+function showPreviousTourStep() {
+  if (state.tourIndex === 0) return;
+
+  state.tourIndex -= 1;
+  renderTourStep();
+}
+
+function endTour() {
+  clearTourHighlight();
+  elements.tourOverlay.hidden = true;
+}
+
+function handleTourOverlayClick(event) {
+  if (event.target === elements.tourOverlay) {
+    endTour();
+  }
+}
+
+function renderTourStep() {
+  const step = TOUR_STEPS[state.tourIndex];
+  const target = document.querySelector(step.selector);
+
+  clearTourHighlight();
+
+  if (target) {
+    target.classList.add("is-tour-highlight");
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }
+
+  elements.tourStepCounter.textContent = `${state.tourIndex + 1}/${TOUR_STEPS.length}`;
+  elements.tourTitle.textContent = step.title;
+  elements.tourDescription.textContent = step.description;
+  elements.tourPrevButton.disabled = state.tourIndex === 0;
+  elements.tourNextButton.textContent =
+    state.tourIndex === TOUR_STEPS.length - 1 ? "Selesai" : "Next";
+}
+
+function clearTourHighlight() {
+  document
+    .querySelectorAll(".is-tour-highlight")
+    .forEach((element) => element.classList.remove("is-tour-highlight"));
 }
 
 function handleTaskPointerDown(event) {
@@ -320,14 +463,20 @@ function loadState() {
   state.completions = readFromStorage(STORAGE_KEYS.completions, {});
   state.notes = readFromStorage(STORAGE_KEYS.notes, {});
   state.taskSnapshots = readFromStorage(STORAGE_KEYS.taskSnapshots, {});
+  state.specialTasks = readFromStorage(STORAGE_KEYS.specialTasks, {});
+  state.specialCompletions = readFromStorage(STORAGE_KEYS.specialCompletions, {});
 
   ensureCompletionBucket(state.todayKey);
+  ensureSpecialCompletionBucket(state.todayKey);
+  normalizeSpecialTasks();
   migrateTaskSnapshots();
   ensureTaskSnapshot(state.todayKey);
 
   saveTasks();
   saveCompletions();
   saveTaskSnapshots();
+  saveSpecialTasks();
+  saveSpecialCompletions();
 }
 
 function createDefaultTasks() {
@@ -408,6 +557,105 @@ function renderTasks() {
   updateStats();
 }
 
+function renderSpecialTasks() {
+  const todayDayKey = getWeekDayKey(parseDateKey(state.todayKey));
+  const todayCompletedSpecialIds = getTodaySpecialCompletedIds();
+  const fragment = document.createDocumentFragment();
+
+  elements.specialWeekGrid.innerHTML = "";
+
+  WEEK_DAYS.forEach((day) => {
+    const isToday = day.key === todayDayKey;
+    const dayTasks = state.specialTasks[day.key] ?? [];
+    const card = document.createElement("article");
+    card.className = `special-day-card${isToday ? " is-today" : ""}`;
+    card.dataset.dayKey = day.key;
+
+    const header = document.createElement("div");
+    header.className = "special-day-header";
+
+    const title = document.createElement("h3");
+    title.textContent = day.label;
+
+    header.append(title);
+
+    if (isToday) {
+      const badge = document.createElement("span");
+      badge.className = "today-badge";
+      badge.textContent = "Hari ini";
+      header.append(badge);
+    }
+
+    const list = document.createElement("ul");
+    list.className = "special-task-list";
+
+    if (dayTasks.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "special-empty";
+      empty.textContent = isToday
+        ? "Tidak ada task di hari ini."
+        : "Tidak ada task di hari itu.";
+      list.append(empty);
+    } else {
+      dayTasks.forEach((task) => {
+        const isComplete = isToday && todayCompletedSpecialIds.includes(task.id);
+        const item = document.createElement("li");
+        item.className = `special-task-item${isComplete ? " is-complete" : ""}`;
+        item.dataset.specialId = task.id;
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "task-check special-check";
+        checkbox.checked = isComplete;
+        checkbox.disabled = !isToday;
+        checkbox.setAttribute(
+          "aria-label",
+          isToday
+            ? `Tandai ${task.text} selesai`
+            : `Checklist ${task.text} aktif saat hari ${day.label}`,
+        );
+
+        const text = document.createElement("span");
+        text.className = "special-task-text";
+        text.textContent = task.text;
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "delete-button special-delete-button";
+        deleteButton.innerHTML = getTrashIcon();
+        deleteButton.setAttribute("aria-label", `Hapus ${task.text}`);
+
+        item.append(checkbox, text, deleteButton);
+        list.append(item);
+      });
+    }
+
+    const form = document.createElement("form");
+    form.className = "special-form";
+    form.dataset.dayKey = day.key;
+    form.autocomplete = "off";
+
+    const input = document.createElement("input");
+    input.className = "special-input";
+    input.type = "text";
+    input.placeholder = `Task ${day.label.toLowerCase()}...`;
+    input.maxLength = 80;
+    input.required = true;
+
+    const addButton = document.createElement("button");
+    addButton.className = "special-add-button";
+    addButton.type = "submit";
+    addButton.textContent = "+";
+    addButton.setAttribute("aria-label", `Tambah task khusus ${day.label}`);
+
+    form.append(input, addButton);
+    card.append(header, list, form);
+    fragment.append(card);
+  });
+
+  elements.specialWeekGrid.append(fragment);
+}
+
 function renderNotes() {
   elements.dailyNotes.value = state.notes[state.todayKey] ?? "";
 }
@@ -456,6 +704,67 @@ function handleTaskListClick(event) {
   }
 }
 
+function handleSpecialTaskSubmit(event) {
+  const form = event.target.closest(".special-form");
+  if (!form) return;
+
+  event.preventDefault();
+
+  const dayKey = form.dataset.dayKey;
+  const input = form.querySelector(".special-input");
+  const text = input.value.trim();
+
+  if (!text || !state.specialTasks[dayKey]) return;
+
+  state.specialTasks[dayKey].push({
+    id: crypto.randomUUID(),
+    text,
+  });
+
+  input.value = "";
+  saveSpecialTasks();
+  renderSpecialTasks();
+}
+
+function handleSpecialTaskClick(event) {
+  if (event.target.matches(".special-check")) {
+    const item = event.target.closest(".special-task-item");
+    const dayCard = event.target.closest(".special-day-card");
+
+    if (!item || !dayCard?.classList.contains("is-today")) return;
+
+    toggleSpecialTaskStatus(item.dataset.specialId, event.target.checked);
+    item.classList.toggle("is-complete", event.target.checked);
+    return;
+  }
+
+  const deleteButton = event.target.closest(".special-delete-button");
+  if (!deleteButton) return;
+
+  const dayCard = deleteButton.closest(".special-day-card");
+  const item = deleteButton.closest(".special-task-item");
+
+  if (!dayCard || !item) return;
+
+  openDeleteDialog(item.dataset.specialId, {
+    type: "special",
+    dayKey: dayCard.dataset.dayKey,
+  });
+}
+
+function toggleSpecialTaskStatus(taskId, isComplete) {
+  const completedIds = new Set(getTodaySpecialCompletedIds());
+
+  if (isComplete) {
+    completedIds.add(taskId);
+  } else {
+    completedIds.delete(taskId);
+  }
+
+  state.specialCompletions[state.todayKey] = [...completedIds];
+  saveSpecialCompletions();
+}
+
 function getTrashIcon() {
   return `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -483,11 +792,18 @@ function toggleTaskStatus(taskId, isComplete) {
   saveTaskSnapshots();
 }
 
-function openDeleteDialog(taskId) {
-  const task = state.tasks.find((item) => item.id === taskId);
+function openDeleteDialog(taskId, options = {}) {
+  const type = options.type ?? "daily";
+  const task =
+    type === "special"
+      ? state.specialTasks[options.dayKey]?.find((item) => item.id === taskId)
+      : state.tasks.find((item) => item.id === taskId);
+
   if (!task) return;
 
   state.pendingDeleteId = taskId;
+  state.pendingDeleteType = type;
+  state.pendingDeleteDayKey = options.dayKey ?? null;
   elements.deleteTaskName.textContent = task.text;
 
   if (typeof elements.deleteDialog.showModal === "function") {
@@ -504,6 +820,8 @@ function openDeleteDialog(taskId) {
 
 function closeDeleteDialog() {
   state.pendingDeleteId = null;
+  state.pendingDeleteType = "daily";
+  state.pendingDeleteDayKey = null;
 
   if (elements.deleteDialog.open) {
     elements.deleteDialog.close();
@@ -520,10 +838,19 @@ function confirmDeleteTask() {
   if (!state.pendingDeleteId) return;
 
   const taskId = state.pendingDeleteId;
+  const type = state.pendingDeleteType;
+  const dayKey = state.pendingDeleteDayKey;
   state.pendingDeleteId = null;
+  state.pendingDeleteType = "daily";
+  state.pendingDeleteDayKey = null;
 
   if (elements.deleteDialog.open) {
     elements.deleteDialog.close();
+  }
+
+  if (type === "special") {
+    deleteSpecialTask(dayKey, taskId);
+    return;
   }
 
   deleteTask(taskId);
@@ -545,6 +872,21 @@ function deleteTask(taskId) {
   saveTaskSnapshots();
   renderTasks();
   renderHistory();
+}
+
+function deleteSpecialTask(dayKey, taskId) {
+  if (!state.specialTasks[dayKey]) return;
+
+  state.specialTasks[dayKey] = state.specialTasks[dayKey].filter(
+    (task) => task.id !== taskId,
+  );
+  state.specialCompletions[state.todayKey] = getTodaySpecialCompletedIds().filter(
+    (completedId) => completedId !== taskId,
+  );
+
+  saveSpecialTasks();
+  saveSpecialCompletions();
+  renderSpecialTasks();
 }
 
 function handleNotesInput() {
@@ -665,6 +1007,7 @@ function renderHistory() {
 
 function exportProgress() {
   const completedIds = getTodayCompletedIds();
+  const completedSpecialIds = getTodaySpecialCompletedIds();
   const total = state.tasks.length;
   const completed = state.tasks.filter((task) => completedIds.includes(task.id)).length;
   const remaining = total - completed;
@@ -675,6 +1018,10 @@ function exportProgress() {
     tasks: state.tasks.map((task) => ({
       text: task.text,
       completed: completedIds.includes(task.id),
+    })),
+    specialTasks: getTodaySpecialTasks().map((task) => ({
+      text: task.text,
+      completed: completedSpecialIds.includes(task.id),
     })),
     notes: state.notes[state.todayKey]?.trim() || "Belum ada catatan hari ini.",
     stats: { total, completed, remaining, percent },
@@ -704,16 +1051,40 @@ function createProgressCanvas(data) {
       height: Math.max(74, 28 + lines.length * 34),
     };
   });
+  const specialRows = (data.specialTasks ?? []).map((task) => {
+    const lines = wrapCanvasText(task.text, taskTextWidth, "30px Arial");
+
+    return {
+      ...task,
+      lines,
+      height: Math.max(74, 28 + lines.length * 34),
+    };
+  });
   const noteLines = wrapCanvasText(data.notes, contentWidth - 56, "30px Arial");
   const taskRowsHeight =
     taskRows.length === 0
       ? 74
       : taskRows.reduce((total, task) => total + task.height, 0) +
         (taskRows.length - 1) * 14;
+  const specialRowsHeight =
+    specialRows.length === 0
+      ? 74
+      : specialRows.reduce((total, task) => total + task.height, 0) +
+        (specialRows.length - 1) * 14;
   const notesBoxHeight = Math.max(130, noteLines.length * 38 + 62);
   const height = Math.max(
     1160,
-    padding + 275 + 48 + 126 + 72 + taskRowsHeight + 82 + notesBoxHeight + 80,
+    padding +
+      275 +
+      48 +
+      126 +
+      72 +
+      taskRowsHeight +
+      66 +
+      specialRowsHeight +
+      82 +
+      notesBoxHeight +
+      80,
   );
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -729,6 +1100,8 @@ function createProgressCanvas(data) {
   y = drawCanvasStats(context, data.stats, padding, contentWidth, y);
   y += 72;
   y = drawCanvasTasks(context, taskRows, padding, contentWidth, y);
+  y += 66;
+  y = drawCanvasSpecialTasks(context, specialRows, padding, contentWidth, y);
   y += 66;
   drawCanvasNotes(context, noteLines, padding, contentWidth, y, notesBoxHeight);
 
@@ -814,6 +1187,45 @@ function drawCanvasTasks(context, taskRows, padding, contentWidth, y) {
   }
 
   taskRows.forEach((task) => {
+    drawRoundRect(context, padding, currentY, contentWidth, task.height, 14, "#ffffff", "#d8e0e8");
+    drawCanvasTaskStatus(context, padding + 32, currentY + 36, task.completed);
+
+    context.fillStyle = "#111827";
+    context.font = "30px Arial";
+    task.lines.forEach((line, index) => {
+      context.fillText(line, padding + 76, currentY + 42 + index * 34);
+    });
+
+    drawCanvasStatusPill(
+      context,
+      padding + contentWidth - 144,
+      currentY + 22,
+      task.completed ? "Selesai" : "Belum",
+      task.completed,
+    );
+
+    currentY += task.height + 14;
+  });
+
+  return currentY - 14;
+}
+
+function drawCanvasSpecialTasks(context, specialRows, padding, contentWidth, y) {
+  context.fillStyle = "#0f766e";
+  context.font = "700 24px Arial";
+  context.fillText("TASK KHUSUS HARI INI", padding, y);
+
+  let currentY = y + 28;
+
+  if (specialRows.length === 0) {
+    drawRoundRect(context, padding, currentY, contentWidth, 74, 14, "#ffffff", "#d8e0e8");
+    context.fillStyle = "#64748b";
+    context.font = "28px Arial";
+    context.fillText("Tidak ada task khusus di hari ini.", padding + 28, currentY + 46);
+    return currentY + 74;
+  }
+
+  specialRows.forEach((task) => {
     drawRoundRect(context, padding, currentY, contentWidth, task.height, 14, "#ffffff", "#d8e0e8");
     drawCanvasTaskStatus(context, padding + 32, currentY + 36, task.completed);
 
@@ -980,6 +1392,15 @@ function getTodayCompletedIds() {
   return state.completions[state.todayKey] ?? [];
 }
 
+function getTodaySpecialTasks() {
+  const todayDayKey = getWeekDayKey(parseDateKey(state.todayKey));
+  return state.specialTasks[todayDayKey] ?? [];
+}
+
+function getTodaySpecialCompletedIds() {
+  return state.specialCompletions[state.todayKey] ?? [];
+}
+
 function getHistoryTasks(dateKey) {
   if (Array.isArray(state.taskSnapshots[dateKey])) {
     return state.taskSnapshots[dateKey];
@@ -996,6 +1417,12 @@ function ensureCompletionBucket(dateKey) {
   // Bucket tanggal baru dimulai kosong, sehingga checklist otomatis reset ke nol.
   if (!Array.isArray(state.completions[dateKey])) {
     state.completions[dateKey] = [];
+  }
+}
+
+function ensureSpecialCompletionBucket(dateKey) {
+  if (!Array.isArray(state.specialCompletions[dateKey])) {
+    state.specialCompletions[dateKey] = [];
   }
 }
 
@@ -1031,6 +1458,14 @@ function cloneTasks(tasks) {
   }));
 }
 
+function normalizeSpecialTasks() {
+  WEEK_DAYS.forEach((day) => {
+    if (!Array.isArray(state.specialTasks[day.key])) {
+      state.specialTasks[day.key] = [];
+    }
+  });
+}
+
 function startDateWatcher() {
   window.setInterval(handleDateChange, 60 * 1000);
 }
@@ -1042,9 +1477,12 @@ function handleDateChange() {
 
   state.todayKey = currentDateKey;
   ensureCompletionBucket(state.todayKey);
+  ensureSpecialCompletionBucket(state.todayKey);
   saveCompletions();
+  saveSpecialCompletions();
   renderHeader();
   renderTasks();
+  renderSpecialTasks();
   renderNotes();
   elements.notesStatus.textContent = "Tersimpan";
   elements.historyDate.max = state.todayKey;
@@ -1057,6 +1495,20 @@ function getDateKey(date = new Date()) {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function getWeekDayKey(date = new Date()) {
+  const keysByDayIndex = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+
+  return keysByDayIndex[date.getDay()];
 }
 
 function addDays(date, days) {
@@ -1145,5 +1597,19 @@ function saveTaskSnapshots() {
   localStorage.setItem(
     STORAGE_KEYS.taskSnapshots,
     JSON.stringify(state.taskSnapshots),
+  );
+}
+
+function saveSpecialTasks() {
+  localStorage.setItem(
+    STORAGE_KEYS.specialTasks,
+    JSON.stringify(state.specialTasks),
+  );
+}
+
+function saveSpecialCompletions() {
+  localStorage.setItem(
+    STORAGE_KEYS.specialCompletions,
+    JSON.stringify(state.specialCompletions),
   );
 }
