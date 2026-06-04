@@ -7,7 +7,7 @@ Project ini dibuat dengan **HTML, CSS, dan JavaScript murni**. Tidak ada framewo
 ## Highlight
 
 - Dark mode dan light mode dengan switch icon bulan/matahari.
-- Daily task dengan tambah, hapus, checklist, drag-and-drop reorder, dan konfirmasi sebelum menghapus.
+- Daily task dengan tambah, checklist, mode urutkan, mode edit, mode hapus multi-select, dan konfirmasi sebelum menghapus.
 - Progress bar dan statistik harian otomatis.
 - Statistik mingguan dan bulanan.
 - Task khusus mingguan dengan highlight otomatis untuk hari ini.
@@ -15,7 +15,7 @@ Project ini dibuat dengan **HTML, CSS, dan JavaScript murni**. Tidak ada framewo
 - Tombol panduan interaktif dan tombol kembali ke atas.
 - Daily notes yang tersimpan per tanggal.
 - History read-only dengan mode harian, rekap mingguan, dan rekap bulanan.
-- Export progress harian ke format `.png`.
+- Export progress dan riwayat ke format `.png`.
 - Export riwayat harian/mingguan/bulanan ke format `.png`.
 - Data tersimpan otomatis di LocalStorage.
 - Manifest dan ikon PWA untuk shortcut/Add to Home Screen.
@@ -40,9 +40,9 @@ Untuk membuat tampilan repository makin menarik, tambahkan screenshot aplikasi d
 
 ### Daily Task
 
-Kelola checklist harian dengan cepat. Task default sudah tersedia saat pertama kali aplikasi dibuka, dan kamu tetap bisa menambah atau menghapus task sesuai rutinitas pribadi.
+Kelola checklist harian dengan cepat. Task default sudah tersedia saat pertama kali aplikasi dibuka, dan kamu tetap bisa menambah, mengedit, atau menghapus task sesuai rutinitas pribadi.
 
-Task juga bisa diurutkan ulang dengan hold sekitar 2 detik lalu drag ke atas atau ke bawah, supaya tidak gampang kegeser tanpa sengaja.
+Task juga bisa diurutkan ulang lewat tombol mode urutkan, lalu drag item dari area kotaknya. Mode edit dan hapus dipisah lewat tombol khusus agar lebih nyaman di Android dan tidak mengganggu scroll.
 
 ### Task Khusus Mingguan
 
@@ -77,8 +77,6 @@ Pilih tanggal tertentu untuk melihat ulang riwayat harian:
 History juga punya mode rekap mingguan dan bulanan untuk melihat akumulasi progress per tanggal. Semua history bersifat read-only supaya data lama tidak mudah berubah tanpa sengaja.
 
 ### Export PNG
-
-Tombol **Export Progress** akan mengunduh report visual hari ini dalam format `.png`, berisi tanggal, statistik, daftar task, status task, dan daily notes.
 
 Di bagian History, tombol **Export Riwayat** akan mengekspor mode yang sedang aktif: harian, mingguan, atau bulanan.
 

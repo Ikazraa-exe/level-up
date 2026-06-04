@@ -38,7 +38,7 @@ const WEEK_DAYS = [
   { key: "sunday", label: "Minggu" },
 ];
 
-const DRAG_HOLD_DELAY_MS = 2400;
+const DRAG_HOLD_DELAY_MS = 180;
 const DRAG_CANCEL_DISTANCE = 12;
 
 const HISTORY_TITLES = {
@@ -66,12 +66,12 @@ const TOUR_STEPS = [
   {
     selector: ".task-card",
     title: "Daily Task",
-    description: "Ini rutinitas wajib harian. Kamu bisa tambah, checklist, hapus, export, dan hold sekitar 2 detik untuk mengurutkan task.",
+    description: "Ini rutinitas wajib harian. Aktifkan tombol urutkan dulu, lalu geser task dari kotaknya.",
   },
   {
     selector: ".special-card",
     title: "Task Khusus",
-    description: "Atur program berbeda untuk tiap hari. Hari ini otomatis disorot, dan task khusus juga bisa dicentang.",
+    description: "Atur program berbeda untuk tiap hari. Setiap hari yang punya list bisa diurutkan lewat tombol urutkan di kartunya.",
   },
   {
     selector: ".notes-card",
@@ -94,12 +94,22 @@ const state = {
   specialCompletions: {},
   todayKey: getDateKey(),
   pendingDeleteId: null,
+  pendingDeleteIds: [],
   pendingDeleteType: "daily",
   pendingDeleteDayKey: null,
+  pendingEditId: null,
+  pendingEditType: "daily",
+  pendingEditDayKey: null,
   drag: null,
   suppressNextTaskClick: false,
   tourIndex: 0,
   historyView: "daily",
+  dailyReorderMode: false,
+  dailyActionMode: null,
+  specialReorderDayKey: null,
+  specialActionMode: null,
+  specialActionDayKey: null,
+  selectedDeleteIds: new Set(),
 };
 
 const elements = {
@@ -125,7 +135,9 @@ const elements = {
   specialWeekGrid: document.querySelector("#specialWeekGrid"),
   dailyNotes: document.querySelector("#dailyNotes"),
   notesStatus: document.querySelector("#notesStatus"),
-  exportButton: document.querySelector("#exportButton"),
+  dailyReorderButton: document.querySelector("#dailyReorderButton"),
+  dailyEditButton: document.querySelector("#dailyEditButton"),
+  dailyDeleteButton: document.querySelector("#dailyDeleteButton"),
   themeToggle: document.querySelector("#themeToggle"),
   historyTitle: document.querySelector("#historyTitle"),
   historyViewButtons: document.querySelectorAll("[data-history-view]"),
@@ -140,9 +152,14 @@ const elements = {
   historyNotesLabel: document.querySelector("#historyNotesLabel"),
   historyNotes: document.querySelector("#historyNotes"),
   deleteDialog: document.querySelector("#deleteDialog"),
+  deleteDialogTitle: document.querySelector("#deleteDialogTitle"),
   deleteTaskName: document.querySelector("#deleteTaskName"),
   cancelDeleteButton: document.querySelector("#cancelDeleteButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
+  editDialog: document.querySelector("#editDialog"),
+  editTaskInput: document.querySelector("#editTaskInput"),
+  cancelEditButton: document.querySelector("#cancelEditButton"),
+  saveEditButton: document.querySelector("#saveEditButton"),
   guideButton: document.querySelector("#guideButton"),
   toTopButton: document.querySelector("#toTopButton"),
   tourOverlay: document.querySelector("#tourOverlay"),
@@ -174,10 +191,14 @@ function bindEvents() {
   elements.taskList.addEventListener("click", suppressClickAfterDrag, true);
   elements.taskList.addEventListener("pointerdown", handleTaskPointerDown);
   elements.taskList.addEventListener("click", handleTaskListClick);
+  elements.specialWeekGrid.addEventListener("click", suppressClickAfterDrag, true);
+  elements.specialWeekGrid.addEventListener("pointerdown", handleSpecialPointerDown);
   elements.specialWeekGrid.addEventListener("submit", handleSpecialTaskSubmit);
   elements.specialWeekGrid.addEventListener("click", handleSpecialTaskClick);
   elements.dailyNotes.addEventListener("input", handleNotesInput);
-  elements.exportButton.addEventListener("click", exportProgress);
+  elements.dailyReorderButton.addEventListener("click", toggleDailyReorderMode);
+  elements.dailyEditButton.addEventListener("click", toggleDailyEditMode);
+  elements.dailyDeleteButton.addEventListener("click", toggleDailyDeleteMode);
   elements.themeToggle.addEventListener("click", toggleTheme);
   elements.guideButton.addEventListener("click", startTour);
   elements.toTopButton.addEventListener("click", scrollToTop);
@@ -196,6 +217,14 @@ function bindEvents() {
   elements.deleteDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeDeleteDialog();
+  });
+  elements.cancelEditButton.addEventListener("click", closeEditDialog);
+  elements.saveEditButton.addEventListener("click", confirmEditTask);
+  elements.editTaskInput.addEventListener("keydown", handleEditInputKeydown);
+  elements.editDialog.addEventListener("click", handleEditDialogBackdropClick);
+  elements.editDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeEditDialog();
   });
   window.addEventListener("focus", handleDateChange);
   document.addEventListener("visibilitychange", () => {
@@ -273,18 +302,56 @@ function clearTourHighlight() {
 }
 
 function handleTaskPointerDown(event) {
+  if (!state.dailyReorderMode) return;
   if (event.button !== undefined && event.button !== 0) return;
+  if (event.target.closest("button, input, textarea")) return;
 
   const taskItem = event.target.closest(".task-item");
   if (!taskItem || !elements.taskList.contains(taskItem)) return;
   if (elements.deleteDialog.open) return;
 
+  startReorderDrag({
+    event,
+    type: "daily",
+    item: taskItem,
+    list: elements.taskList,
+    itemSelector: ".task-item",
+  });
+}
+
+function handleSpecialPointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.target.closest("button, input, textarea")) return;
+
+  const item = event.target.closest(".special-task-item");
+  const card = event.target.closest(".special-day-card");
+  const list = event.target.closest(".special-task-list");
+
+  if (!item || !card || !list) return;
+  if (state.specialReorderDayKey !== card.dataset.dayKey) return;
+  if (elements.deleteDialog.open) return;
+
+  startReorderDrag({
+    event,
+    type: "special",
+    item,
+    list,
+    itemSelector: ".special-task-item",
+    dayKey: card.dataset.dayKey,
+  });
+}
+
+function startReorderDrag({ event, type, item, list, itemSelector, dayKey = null }) {
   state.drag = {
-    taskItem,
+    type,
+    item,
+    list,
+    itemSelector,
+    dayKey,
     pointerId: event.pointerId,
     startY: event.clientY,
     started: false,
-    longPressTimer: window.setTimeout(beginTaskDrag, DRAG_HOLD_DELAY_MS),
+    longPressTimer: window.setTimeout(beginReorderDrag, DRAG_HOLD_DELAY_MS),
   };
 
   window.addEventListener("pointermove", handleTaskPointerMove, { passive: false });
@@ -307,50 +374,51 @@ function handleTaskPointerMove(event) {
   }
 
   event.preventDefault();
-  moveDraggedTask(event.clientY);
+  moveDraggedItem(event.clientY);
 }
 
-function beginTaskDrag() {
+function beginReorderDrag() {
   const drag = state.drag;
   if (!drag || drag.started) return;
 
   drag.started = true;
-  drag.taskItem.classList.add("is-dragging");
-  elements.taskList.classList.add("is-reordering");
+  drag.item.classList.add("is-dragging");
+  drag.list.classList.add("is-reordering");
   document.body.classList.add("is-task-dragging");
 
   try {
-    drag.taskItem.setPointerCapture(drag.pointerId);
+    drag.item.setPointerCapture(drag.pointerId);
   } catch {}
 }
 
-function moveDraggedTask(clientY) {
-  const previousRects = getTaskItemRects();
-  const afterElement = getTaskAfterDragPosition(clientY);
-  const draggingItem = state.drag.taskItem;
+function moveDraggedItem(clientY) {
+  const drag = state.drag;
+  const previousRects = getDragItemRects(drag);
+  const afterElement = getItemAfterDragPosition(drag, clientY);
+  const draggingItem = drag.item;
 
   if (!afterElement) {
-    elements.taskList.append(draggingItem);
-    animateTaskLayout(previousRects);
+    drag.list.append(draggingItem);
+    animateDragLayout(drag, previousRects);
     return;
   }
 
-  elements.taskList.insertBefore(draggingItem, afterElement);
-  animateTaskLayout(previousRects);
+  drag.list.insertBefore(draggingItem, afterElement);
+  animateDragLayout(drag, previousRects);
 }
 
-function getTaskItemRects() {
+function getDragItemRects(drag) {
   return new Map(
-    [...elements.taskList.querySelectorAll(".task-item")].map((item) => [
+    [...drag.list.querySelectorAll(drag.itemSelector)].map((item) => [
       item,
       item.getBoundingClientRect(),
     ]),
   );
 }
 
-function animateTaskLayout(previousRects) {
-  elements.taskList
-    .querySelectorAll(".task-item:not(.is-dragging)")
+function animateDragLayout(drag, previousRects) {
+  drag.list
+    .querySelectorAll(`${drag.itemSelector}:not(.is-dragging)`)
     .forEach((item) => {
       const previousRect = previousRects.get(item);
       if (!previousRect) return;
@@ -373,8 +441,10 @@ function animateTaskLayout(previousRects) {
     });
 }
 
-function getTaskAfterDragPosition(clientY) {
-  const taskItems = [...elements.taskList.querySelectorAll(".task-item:not(.is-dragging)")];
+function getItemAfterDragPosition(drag, clientY) {
+  const taskItems = [
+    ...drag.list.querySelectorAll(`${drag.itemSelector}:not(.is-dragging)`),
+  ];
 
   return taskItems.reduce(
     (closest, item) => {
@@ -394,12 +464,12 @@ function getTaskAfterDragPosition(clientY) {
 function handleTaskPointerUp(event) {
   const drag = state.drag;
   if (!drag || event.pointerId !== drag.pointerId) return;
-  const droppedItem = drag.taskItem;
+  const droppedItem = drag.item;
   const didDrag = drag.started;
 
   if (didDrag) {
     event.preventDefault();
-    persistTaskOrderFromDom();
+    persistReorderFromDom(drag);
     suppressNextTaskClickBriefly();
   }
 
@@ -421,9 +491,15 @@ function animateTaskDrop(taskItem) {
 function cancelTaskDrag(event) {
   const drag = state.drag;
   if (!drag || event.pointerId !== drag.pointerId) return;
+  const type = drag.type;
 
   cleanupTaskDrag();
-  renderTasks();
+
+  if (type === "special") {
+    renderSpecialTasks();
+  } else {
+    renderTasks();
+  }
 }
 
 function cleanupTaskDrag() {
@@ -431,12 +507,12 @@ function cleanupTaskDrag() {
   if (!drag) return;
 
   window.clearTimeout(drag.longPressTimer);
-  drag.taskItem.classList.remove("is-dragging");
-  elements.taskList.classList.remove("is-reordering");
+  drag.item.classList.remove("is-dragging");
+  drag.list.classList.remove("is-reordering");
   document.body.classList.remove("is-task-dragging");
 
   try {
-    drag.taskItem.releasePointerCapture(drag.pointerId);
+    drag.item.releasePointerCapture(drag.pointerId);
   } catch {}
 
   window.removeEventListener("pointermove", handleTaskPointerMove);
@@ -445,8 +521,17 @@ function cleanupTaskDrag() {
   state.drag = null;
 }
 
-function persistTaskOrderFromDom() {
-  const orderedIds = [...elements.taskList.querySelectorAll(".task-item")].map(
+function persistReorderFromDom(drag) {
+  if (drag.type === "special") {
+    persistSpecialTaskOrderFromDom(drag);
+    return;
+  }
+
+  persistDailyTaskOrderFromDom(drag);
+}
+
+function persistDailyTaskOrderFromDom(drag) {
+  const orderedIds = [...drag.list.querySelectorAll(".task-item")].map(
     (item) => item.dataset.taskId,
   );
   const tasksById = new Map(state.tasks.map((task) => [task.id, task]));
@@ -460,6 +545,26 @@ function persistTaskOrderFromDom() {
   syncTodaySnapshot();
   saveTasks();
   saveTaskSnapshots();
+  renderHistory();
+}
+
+function persistSpecialTaskOrderFromDom(drag) {
+  if (!state.specialTasks[drag.dayKey]) return;
+
+  const orderedIds = [...drag.list.querySelectorAll(".special-task-item")].map(
+    (item) => item.dataset.specialId,
+  );
+  const tasksById = new Map(
+    state.specialTasks[drag.dayKey].map((task) => [task.id, task]),
+  );
+  const reorderedTasks = orderedIds
+    .map((taskId) => tasksById.get(taskId))
+    .filter(Boolean);
+
+  if (reorderedTasks.length !== state.specialTasks[drag.dayKey].length) return;
+
+  state.specialTasks[drag.dayKey] = reorderedTasks;
+  saveSpecialTasks();
   renderHistory();
 }
 
@@ -541,6 +646,10 @@ function renderTasks() {
   if (state.tasks.length === 0) {
     elements.taskList.innerHTML =
       '<li class="empty-state">Belum ada task. Tambahkan satu langkah kecil untuk hari ini.</li>';
+    state.dailyReorderMode = false;
+    state.dailyActionMode = null;
+    state.selectedDeleteIds.clear();
+    updateDailyReorderMode();
     updateStats();
     return;
   }
@@ -550,8 +659,12 @@ function renderTasks() {
 
   state.tasks.forEach((task) => {
     const isComplete = todayCompletedIds.includes(task.id);
+    const isSelectedForDelete =
+      state.dailyActionMode === "delete" && state.selectedDeleteIds.has(task.id);
     const item = document.createElement("li");
-    item.className = `task-item${isComplete ? " is-complete" : ""}`;
+    item.className = `task-item${isComplete ? " is-complete" : ""}${
+      isSelectedForDelete ? " is-selected-for-delete" : ""
+    }`;
     item.dataset.taskId = task.id;
 
     const checkbox = document.createElement("input");
@@ -564,18 +677,143 @@ function renderTasks() {
     taskText.className = "task-text";
     taskText.textContent = task.text;
 
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "delete-button";
-    deleteButton.innerHTML = getTrashIcon();
-    deleteButton.setAttribute("aria-label", `Hapus ${task.text}`);
+    const actions = document.createElement("span");
+    actions.className = "task-actions";
 
-    item.append(deleteButton, taskText, checkbox);
+    actions.append(checkbox);
+    item.append(taskText, actions);
     fragment.append(item);
   });
 
   elements.taskList.append(fragment);
+  if (state.tasks.length < 2) {
+    state.dailyReorderMode = false;
+  }
+  updateDailyReorderMode();
   updateStats();
+}
+
+function toggleDailyReorderMode() {
+  if (state.tasks.length < 2) return;
+
+  state.dailyReorderMode = !state.dailyReorderMode;
+  state.dailyActionMode = null;
+  state.selectedDeleteIds.clear();
+
+  if (!state.dailyReorderMode && state.drag?.type === "daily") {
+    cleanupTaskDrag();
+  }
+
+  if (state.dailyReorderMode) {
+    clearSpecialModes();
+  }
+
+  updateDailyReorderMode();
+  renderTasks();
+}
+
+function updateDailyReorderMode() {
+  const canReorder = state.tasks.length > 1;
+  const hasTasks = state.tasks.length > 0;
+
+  elements.taskList.classList.toggle("is-reorder-mode", state.dailyReorderMode);
+  elements.taskList.classList.toggle("is-edit-mode", state.dailyActionMode === "edit");
+  elements.taskList.classList.toggle("is-delete-mode", state.dailyActionMode === "delete");
+  elements.dailyReorderButton.disabled = !canReorder;
+  elements.dailyReorderButton.classList.toggle("is-active", state.dailyReorderMode);
+  elements.dailyReorderButton.setAttribute("aria-pressed", String(state.dailyReorderMode));
+  elements.dailyReorderButton.setAttribute(
+    "aria-label",
+    state.dailyReorderMode
+      ? "Matikan mode urutkan daily task"
+      : "Aktifkan mode urutkan daily task",
+  );
+  elements.dailyReorderButton.title = state.dailyReorderMode
+    ? "Selesai urutkan"
+    : "Urutkan daily task";
+
+  elements.dailyEditButton.disabled = !hasTasks;
+  elements.dailyEditButton.classList.toggle("is-active", state.dailyActionMode === "edit");
+  elements.dailyEditButton.setAttribute(
+    "aria-pressed",
+    String(state.dailyActionMode === "edit"),
+  );
+  elements.dailyEditButton.setAttribute(
+    "aria-label",
+    state.dailyActionMode === "edit"
+      ? "Matikan mode edit daily task"
+      : "Aktifkan mode edit daily task",
+  );
+  elements.dailyEditButton.title =
+    state.dailyActionMode === "edit" ? "Selesai edit" : "Edit daily task";
+
+  elements.dailyDeleteButton.disabled = !hasTasks;
+  elements.dailyDeleteButton.classList.toggle(
+    "is-active",
+    state.dailyActionMode === "delete",
+  );
+  elements.dailyDeleteButton.setAttribute(
+    "aria-pressed",
+    String(state.dailyActionMode === "delete"),
+  );
+  elements.dailyDeleteButton.setAttribute(
+    "aria-label",
+    state.dailyActionMode === "delete"
+      ? "Konfirmasi hapus daily task terpilih"
+      : "Aktifkan mode hapus daily task",
+  );
+  elements.dailyDeleteButton.title =
+    state.dailyActionMode === "delete" && state.selectedDeleteIds.size > 0
+      ? "Konfirmasi hapus"
+      : state.dailyActionMode === "delete"
+        ? "Selesai hapus"
+        : "Hapus daily task";
+}
+
+function toggleDailyEditMode() {
+  if (state.tasks.length === 0) return;
+
+  state.dailyReorderMode = false;
+  state.dailyActionMode = state.dailyActionMode === "edit" ? null : "edit";
+  state.selectedDeleteIds.clear();
+  if (state.dailyActionMode) {
+    clearSpecialModes();
+  }
+  renderTasks();
+  renderSpecialTasks();
+}
+
+function toggleDailyDeleteMode() {
+  if (state.tasks.length === 0) return;
+
+  if (state.dailyActionMode === "delete") {
+    if (state.selectedDeleteIds.size > 0) {
+      openDeleteDialogForTasks([...state.selectedDeleteIds], { type: "daily" });
+      return;
+    }
+
+    state.dailyActionMode = null;
+    renderTasks();
+    return;
+  }
+
+  state.dailyReorderMode = false;
+  state.dailyActionMode = "delete";
+  state.selectedDeleteIds.clear();
+  clearSpecialModes();
+  renderTasks();
+  renderSpecialTasks();
+}
+
+function clearDailyModes() {
+  if (state.drag?.type === "daily") {
+    cleanupTaskDrag();
+  }
+
+  state.dailyReorderMode = false;
+  state.dailyActionMode = null;
+  state.selectedDeleteIds.clear();
+  updateDailyReorderMode();
 }
 
 function renderSpecialTasks() {
@@ -585,11 +823,34 @@ function renderSpecialTasks() {
 
   elements.specialWeekGrid.innerHTML = "";
 
+  if (
+    state.specialReorderDayKey &&
+    (state.specialTasks[state.specialReorderDayKey]?.length ?? 0) < 2
+  ) {
+    state.specialReorderDayKey = null;
+  }
+
+  if (
+    state.specialActionDayKey &&
+    (state.specialTasks[state.specialActionDayKey]?.length ?? 0) === 0
+  ) {
+    state.specialActionMode = null;
+    state.specialActionDayKey = null;
+    state.selectedDeleteIds.clear();
+  }
+
   WEEK_DAYS.forEach((day) => {
     const isToday = day.key === todayDayKey;
     const dayTasks = state.specialTasks[day.key] ?? [];
+    const isReorderMode = state.specialReorderDayKey === day.key;
+    const isEditMode =
+      state.specialActionMode === "edit" && state.specialActionDayKey === day.key;
+    const isDeleteMode =
+      state.specialActionMode === "delete" && state.specialActionDayKey === day.key;
     const card = document.createElement("article");
-    card.className = `special-day-card${isToday ? " is-today" : ""}`;
+    card.className = `special-day-card${isToday ? " is-today" : ""}${
+      isReorderMode ? " is-reorder-mode" : ""
+    }${isEditMode ? " is-edit-mode" : ""}${isDeleteMode ? " is-delete-mode" : ""}`;
     card.dataset.dayKey = day.key;
 
     const header = document.createElement("div");
@@ -598,17 +859,82 @@ function renderSpecialTasks() {
     const title = document.createElement("h3");
     title.textContent = day.label;
 
-    header.append(title);
+    const actions = document.createElement("div");
+    actions.className = "special-day-actions";
 
     if (isToday) {
       const badge = document.createElement("span");
       badge.className = "today-badge";
       badge.textContent = "Hari ini";
-      header.append(badge);
+      actions.append(badge);
     }
 
+    if (dayTasks.length > 1) {
+      const reorderButton = document.createElement("button");
+      reorderButton.type = "button";
+      reorderButton.className = `reorder-toggle-button special-reorder-button${
+        isReorderMode ? " is-active" : ""
+      }`;
+      reorderButton.dataset.dayKey = day.key;
+      reorderButton.innerHTML = getReorderIcon();
+      reorderButton.setAttribute(
+        "aria-label",
+        isReorderMode
+          ? `Matikan mode urutkan task khusus ${day.label}`
+          : `Aktifkan mode urutkan task khusus ${day.label}`,
+      );
+      reorderButton.setAttribute("aria-pressed", String(isReorderMode));
+      reorderButton.title = isReorderMode ? "Selesai urutkan" : `Urutkan ${day.label}`;
+      actions.append(reorderButton);
+    }
+
+    if (dayTasks.length > 0) {
+      const editModeButton = document.createElement("button");
+      editModeButton.type = "button";
+      editModeButton.className = `edit-button special-action-button special-edit-mode-button${
+        isEditMode ? " is-active" : ""
+      }`;
+      editModeButton.dataset.dayKey = day.key;
+      editModeButton.innerHTML = getPencilIcon();
+      editModeButton.setAttribute(
+        "aria-label",
+        isEditMode
+          ? `Matikan mode edit task khusus ${day.label}`
+          : `Aktifkan mode edit task khusus ${day.label}`,
+      );
+      editModeButton.setAttribute("aria-pressed", String(isEditMode));
+      editModeButton.title = isEditMode ? "Selesai edit" : `Edit ${day.label}`;
+      actions.append(editModeButton);
+
+      const deleteModeButton = document.createElement("button");
+      deleteModeButton.type = "button";
+      deleteModeButton.className = `delete-button special-action-button special-delete-mode-button${
+        isDeleteMode ? " is-active" : ""
+      }`;
+      deleteModeButton.dataset.dayKey = day.key;
+      deleteModeButton.innerHTML = getTrashIcon();
+      deleteModeButton.setAttribute(
+        "aria-label",
+        isDeleteMode
+          ? `Konfirmasi hapus task khusus ${day.label} terpilih`
+          : `Aktifkan mode hapus task khusus ${day.label}`,
+      );
+      deleteModeButton.setAttribute("aria-pressed", String(isDeleteMode));
+      deleteModeButton.title =
+        isDeleteMode && state.selectedDeleteIds.size > 0
+          ? "Konfirmasi hapus"
+          : isDeleteMode
+            ? "Selesai hapus"
+            : `Hapus ${day.label}`;
+      actions.append(deleteModeButton);
+    }
+
+    header.append(title, actions);
+
     const list = document.createElement("ul");
-    list.className = "special-task-list";
+    list.className = `special-task-list${isReorderMode ? " is-reorder-mode" : ""}${
+      isEditMode ? " is-edit-mode" : ""
+    }${isDeleteMode ? " is-delete-mode" : ""}`;
 
     if (dayTasks.length === 0) {
       const empty = document.createElement("li");
@@ -620,8 +946,11 @@ function renderSpecialTasks() {
     } else {
       dayTasks.forEach((task) => {
         const isComplete = isToday && todayCompletedSpecialIds.includes(task.id);
+        const isSelectedForDelete = isDeleteMode && state.selectedDeleteIds.has(task.id);
         const item = document.createElement("li");
-        item.className = `special-task-item${isComplete ? " is-complete" : ""}`;
+        item.className = `special-task-item${isComplete ? " is-complete" : ""}${
+          isSelectedForDelete ? " is-selected-for-delete" : ""
+        }`;
         item.dataset.specialId = task.id;
 
         const checkbox = document.createElement("input");
@@ -640,13 +969,11 @@ function renderSpecialTasks() {
         text.className = "special-task-text";
         text.textContent = task.text;
 
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "delete-button special-delete-button";
-        deleteButton.innerHTML = getTrashIcon();
-        deleteButton.setAttribute("aria-label", `Hapus ${task.text}`);
+        const actions = document.createElement("span");
+        actions.className = "task-actions";
 
-        item.append(deleteButton, text, checkbox);
+        actions.append(checkbox);
+        item.append(text, actions);
         list.append(item);
       });
     }
@@ -713,6 +1040,19 @@ function handleTaskListClick(event) {
 
   const taskId = taskItem.dataset.taskId;
 
+  if (state.dailyActionMode === "delete") {
+    toggleDeleteSelection(taskId);
+    renderTasks();
+    return;
+  }
+
+  if (state.dailyActionMode === "edit") {
+    openEditDialog(taskId);
+    return;
+  }
+
+  if (state.dailyReorderMode) return;
+
   if (event.target.matches(".task-check")) {
     toggleTaskStatus(taskId, event.target.checked);
     taskItem.classList.toggle("is-complete", event.target.checked);
@@ -724,9 +1064,15 @@ function handleTaskListClick(event) {
     return;
   }
 
-  if (event.target.closest(".delete-button")) {
-    openDeleteDialog(taskId);
+}
+
+function toggleDeleteSelection(taskId) {
+  if (state.selectedDeleteIds.has(taskId)) {
+    state.selectedDeleteIds.delete(taskId);
+    return;
   }
+
+  state.selectedDeleteIds.add(taskId);
 }
 
 function handleSpecialTaskSubmit(event) {
@@ -754,6 +1100,54 @@ function handleSpecialTaskSubmit(event) {
 }
 
 function handleSpecialTaskClick(event) {
+  const reorderButton = event.target.closest(".special-reorder-button");
+  if (reorderButton) {
+    toggleSpecialReorderMode(reorderButton.dataset.dayKey);
+    return;
+  }
+
+  const editModeButton = event.target.closest(".special-edit-mode-button");
+  if (editModeButton) {
+    toggleSpecialEditMode(editModeButton.dataset.dayKey);
+    return;
+  }
+
+  const deleteModeButton = event.target.closest(".special-delete-mode-button");
+  if (deleteModeButton) {
+    toggleSpecialDeleteMode(deleteModeButton.dataset.dayKey);
+    return;
+  }
+
+  const activeReorderCard = event.target.closest(".special-day-card.is-reorder-mode");
+  if (activeReorderCard && event.target.closest(".special-task-item")) return;
+
+  const specialItem = event.target.closest(".special-task-item");
+  const dayCard = event.target.closest(".special-day-card");
+
+  if (
+    specialItem &&
+    dayCard &&
+    state.specialActionDayKey === dayCard.dataset.dayKey &&
+    state.specialActionMode === "delete"
+  ) {
+    toggleDeleteSelection(specialItem.dataset.specialId);
+    renderSpecialTasks();
+    return;
+  }
+
+  if (
+    specialItem &&
+    dayCard &&
+    state.specialActionDayKey === dayCard.dataset.dayKey &&
+    state.specialActionMode === "edit"
+  ) {
+    openEditDialog(specialItem.dataset.specialId, {
+      type: "special",
+      dayKey: dayCard.dataset.dayKey,
+    });
+    return;
+  }
+
   if (event.target.matches(".special-check")) {
     const item = event.target.closest(".special-task-item");
     const dayCard = event.target.closest(".special-day-card");
@@ -769,19 +1163,83 @@ function handleSpecialTaskClick(event) {
     renderHistory();
     return;
   }
+}
 
-  const deleteButton = event.target.closest(".special-delete-button");
-  if (!deleteButton) return;
+function toggleSpecialReorderMode(dayKey) {
+  if (!dayKey || (state.specialTasks[dayKey]?.length ?? 0) < 2) return;
 
-  const dayCard = deleteButton.closest(".special-day-card");
-  const item = deleteButton.closest(".special-task-item");
+  const isActive = state.specialReorderDayKey === dayKey;
 
-  if (!dayCard || !item) return;
+  if (isActive && state.drag?.type === "special") {
+    cleanupTaskDrag();
+  }
 
-  openDeleteDialog(item.dataset.specialId, {
-    type: "special",
-    dayKey: dayCard.dataset.dayKey,
-  });
+  state.specialReorderDayKey = isActive ? null : dayKey;
+  state.specialActionMode = null;
+  state.specialActionDayKey = null;
+  state.selectedDeleteIds.clear();
+  if (state.specialReorderDayKey && state.dailyReorderMode) {
+    state.dailyReorderMode = false;
+    state.dailyActionMode = null;
+    updateDailyReorderMode();
+  }
+  renderSpecialTasks();
+}
+
+function toggleSpecialEditMode(dayKey) {
+  if (!dayKey || (state.specialTasks[dayKey]?.length ?? 0) === 0) return;
+
+  const isActive =
+    state.specialActionMode === "edit" && state.specialActionDayKey === dayKey;
+
+  clearDailyModes();
+  state.specialReorderDayKey = null;
+  state.specialActionMode = isActive ? null : "edit";
+  state.specialActionDayKey = isActive ? null : dayKey;
+  state.selectedDeleteIds.clear();
+  renderTasks();
+  renderSpecialTasks();
+}
+
+function toggleSpecialDeleteMode(dayKey) {
+  if (!dayKey || (state.specialTasks[dayKey]?.length ?? 0) === 0) return;
+
+  const isActive =
+    state.specialActionMode === "delete" && state.specialActionDayKey === dayKey;
+
+  if (isActive) {
+    if (state.selectedDeleteIds.size > 0) {
+      openDeleteDialogForTasks([...state.selectedDeleteIds], {
+        type: "special",
+        dayKey,
+      });
+      return;
+    }
+
+    state.specialActionMode = null;
+    state.specialActionDayKey = null;
+    renderSpecialTasks();
+    return;
+  }
+
+  clearDailyModes();
+  state.specialReorderDayKey = null;
+  state.specialActionMode = "delete";
+  state.specialActionDayKey = dayKey;
+  state.selectedDeleteIds.clear();
+  renderTasks();
+  renderSpecialTasks();
+}
+
+function clearSpecialModes() {
+  if (state.drag?.type === "special") {
+    cleanupTaskDrag();
+  }
+
+  state.specialReorderDayKey = null;
+  state.specialActionMode = null;
+  state.specialActionDayKey = null;
+  state.selectedDeleteIds.clear();
 }
 
 function toggleSpecialTaskStatus(taskId, isComplete) {
@@ -827,6 +1285,23 @@ function getPlusIcon() {
   `;
 }
 
+function getReorderIcon() {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="4" />
+    </svg>
+  `;
+}
+
+function getPencilIcon() {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 20h9" fill="none" stroke="currentColor" stroke-linecap="round" />
+      <path d="m16.5 3.5 4 4L8 20H4v-4L16.5 3.5Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  `;
+}
+
 function toggleTaskStatus(taskId, isComplete) {
   const completedIds = new Set(getTodayCompletedIds());
   ensureTaskSnapshot(state.todayKey);
@@ -850,7 +1325,7 @@ function handleHistoryViewChange(event) {
   renderHistory();
 }
 
-function openDeleteDialog(taskId, options = {}) {
+function openEditDialog(taskId, options = {}) {
   const type = options.type ?? "daily";
   const task =
     type === "special"
@@ -859,27 +1334,154 @@ function openDeleteDialog(taskId, options = {}) {
 
   if (!task) return;
 
-  state.pendingDeleteId = taskId;
+  state.pendingEditId = taskId;
+  state.pendingEditType = type;
+  state.pendingEditDayKey = options.dayKey ?? null;
+  elements.editTaskInput.value = task.text;
+
+  if (typeof elements.editDialog.showModal === "function") {
+    elements.editDialog.showModal();
+    window.setTimeout(() => {
+      elements.editTaskInput.focus();
+      elements.editTaskInput.select();
+    }, 0);
+    return;
+  }
+
+  const nextText = window.prompt("Ubah nama task:", task.text)?.trim();
+
+  if (nextText) {
+    editTask(taskId, nextText, { type, dayKey: options.dayKey });
+  }
+
+  clearPendingEdit();
+}
+
+function closeEditDialog() {
+  clearPendingEdit();
+
+  if (elements.editDialog.open) {
+    elements.editDialog.close();
+  }
+}
+
+function handleEditDialogBackdropClick(event) {
+  if (event.target === elements.editDialog) {
+    closeEditDialog();
+  }
+}
+
+function handleEditInputKeydown(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    confirmEditTask();
+  }
+}
+
+function confirmEditTask() {
+  if (!state.pendingEditId) return;
+
+  const text = elements.editTaskInput.value.trim();
+
+  if (!text) {
+    elements.editTaskInput.focus();
+    return;
+  }
+
+  const taskId = state.pendingEditId;
+  const type = state.pendingEditType;
+  const dayKey = state.pendingEditDayKey;
+
+  clearPendingEdit();
+
+  if (elements.editDialog.open) {
+    elements.editDialog.close();
+  }
+
+  editTask(taskId, text, { type, dayKey });
+}
+
+function clearPendingEdit() {
+  state.pendingEditId = null;
+  state.pendingEditType = "daily";
+  state.pendingEditDayKey = null;
+}
+
+function editTask(taskId, text, options = {}) {
+  const type = options.type ?? "daily";
+
+  if (type === "special") {
+    editSpecialTask(options.dayKey, taskId, text);
+    return;
+  }
+
+  editDailyTask(taskId, text);
+}
+
+function editDailyTask(taskId, text) {
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) return;
+
+  task.text = text;
+  syncTodaySnapshot();
+  saveTasks();
+  saveTaskSnapshots();
+  renderTasks();
+  renderHistory();
+}
+
+function editSpecialTask(dayKey, taskId, text) {
+  const task = state.specialTasks[dayKey]?.find((item) => item.id === taskId);
+  if (!task) return;
+
+  task.text = text;
+  saveSpecialTasks();
+  renderSpecialTasks();
+  renderHistory();
+}
+
+function openDeleteDialogForTasks(taskIds, options = {}) {
+  const type = options.type ?? "daily";
+  const sourceTasks = type === "special" ? state.specialTasks[options.dayKey] ?? [] : state.tasks;
+  const selectedTasks = sourceTasks.filter((task) => taskIds.includes(task.id));
+
+  if (selectedTasks.length === 0) return;
+
+  state.pendingDeleteId = selectedTasks[0].id;
+  state.pendingDeleteIds = selectedTasks.map((task) => task.id);
   state.pendingDeleteType = type;
   state.pendingDeleteDayKey = options.dayKey ?? null;
-  elements.deleteTaskName.textContent = task.text;
+  elements.deleteDialogTitle.textContent =
+    selectedTasks.length > 1 ? `Hapus ${selectedTasks.length} task?` : "Hapus task?";
+  elements.deleteTaskName.textContent =
+    selectedTasks.length > 1
+      ? selectedTasks.map((task) => task.text).join(", ")
+      : selectedTasks[0].text;
 
   if (typeof elements.deleteDialog.showModal === "function") {
     elements.deleteDialog.showModal();
     return;
   }
 
-  if (window.confirm(`Hapus task "${task.text}"?`)) {
+  const confirmText =
+    selectedTasks.length > 1
+      ? `Hapus ${selectedTasks.length} task terpilih?`
+      : `Hapus task "${selectedTasks[0].text}"?`;
+
+  if (window.confirm(confirmText)) {
     confirmDeleteTask();
   } else {
     state.pendingDeleteId = null;
+    state.pendingDeleteIds = [];
   }
 }
 
 function closeDeleteDialog() {
   state.pendingDeleteId = null;
+  state.pendingDeleteIds = [];
   state.pendingDeleteType = "daily";
   state.pendingDeleteDayKey = null;
+  elements.deleteDialogTitle.textContent = "Hapus task?";
 
   if (elements.deleteDialog.open) {
     elements.deleteDialog.close();
@@ -893,37 +1495,43 @@ function handleDialogBackdropClick(event) {
 }
 
 function confirmDeleteTask() {
-  if (!state.pendingDeleteId) return;
+  if (!state.pendingDeleteId && state.pendingDeleteIds.length === 0) return;
 
-  const taskId = state.pendingDeleteId;
+  const taskIds =
+    state.pendingDeleteIds.length > 0 ? [...state.pendingDeleteIds] : [state.pendingDeleteId];
   const type = state.pendingDeleteType;
   const dayKey = state.pendingDeleteDayKey;
   state.pendingDeleteId = null;
+  state.pendingDeleteIds = [];
   state.pendingDeleteType = "daily";
   state.pendingDeleteDayKey = null;
+  elements.deleteDialogTitle.textContent = "Hapus task?";
 
   if (elements.deleteDialog.open) {
     elements.deleteDialog.close();
   }
 
   if (type === "special") {
-    deleteSpecialTask(dayKey, taskId);
+    deleteSpecialTasks(dayKey, taskIds);
     return;
   }
 
-  deleteTask(taskId);
+  deleteTasks(taskIds);
 }
 
-function deleteTask(taskId) {
-  state.tasks = state.tasks.filter((task) => task.id !== taskId);
+function deleteTasks(taskIds) {
+  const taskIdSet = new Set(taskIds);
+  state.tasks = state.tasks.filter((task) => !taskIdSet.has(task.id));
 
   // History tanggal lama tetap utuh; yang dibersihkan hanya data hari ini.
   state.completions[state.todayKey] = getTodayCompletedIds().filter(
-    (completedId) => completedId !== taskId,
+    (completedId) => !taskIdSet.has(completedId),
   );
   state.taskSnapshots[state.todayKey] = getHistoryTasks(state.todayKey).filter(
-    (task) => task.id !== taskId,
+    (task) => !taskIdSet.has(task.id),
   );
+  state.dailyActionMode = null;
+  state.selectedDeleteIds.clear();
 
   saveTasks();
   saveCompletions();
@@ -932,15 +1540,19 @@ function deleteTask(taskId) {
   renderHistory();
 }
 
-function deleteSpecialTask(dayKey, taskId) {
+function deleteSpecialTasks(dayKey, taskIds) {
   if (!state.specialTasks[dayKey]) return;
 
+  const taskIdSet = new Set(taskIds);
   state.specialTasks[dayKey] = state.specialTasks[dayKey].filter(
-    (task) => task.id !== taskId,
+    (task) => !taskIdSet.has(task.id),
   );
   state.specialCompletions[state.todayKey] = getTodaySpecialCompletedIds().filter(
-    (completedId) => completedId !== taskId,
+    (completedId) => !taskIdSet.has(completedId),
   );
+  state.specialActionMode = null;
+  state.specialActionDayKey = null;
+  state.selectedDeleteIds.clear();
 
   saveSpecialTasks();
   saveSpecialCompletions();
@@ -981,7 +1593,7 @@ function updateStats() {
 function updatePeriodStats() {
   const today = parseDateKey(state.todayKey);
   const weeklyStats = calculatePeriodStats(getStartOfWeek(today), today);
-  const monthlyStats = calculatePeriodStats(getStartOfMonth(today), today);
+  const monthlyStats = calculatePeriodStats(getStartOfMonth(today), getEndOfMonth(today));
 
   renderPeriodStats("weekly", weeklyStats);
   renderPeriodStats("monthly", monthlyStats);
@@ -2136,6 +2748,10 @@ function getStartOfWeek(date) {
 
 function getStartOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getEndOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
 function getDateKeysBetween(startDate, endDate) {
