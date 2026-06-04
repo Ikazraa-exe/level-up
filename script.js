@@ -625,7 +625,7 @@ function renderSpecialTasks() {
         deleteButton.innerHTML = getTrashIcon();
         deleteButton.setAttribute("aria-label", `Hapus ${task.text}`);
 
-        item.append(checkbox, text, deleteButton);
+        item.append(deleteButton, text, checkbox);
         list.append(item);
       });
     }
