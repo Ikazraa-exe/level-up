@@ -14,9 +14,11 @@ Project ini dibuat dengan **HTML, CSS, dan JavaScript murni**. Tidak ada framewo
 - Checklist task khusus hari ini agar program tambahan tetap terpantau.
 - Tombol panduan interaktif dan tombol kembali ke atas.
 - Daily notes yang tersimpan per tanggal.
-- History read-only untuk melihat task dan catatan dari tanggal sebelumnya.
+- History read-only dengan mode harian, rekap mingguan, dan rekap bulanan.
 - Export progress harian ke format `.png`.
+- Export riwayat harian/mingguan/bulanan ke format `.png`.
 - Data tersimpan otomatis di LocalStorage.
+- Manifest dan ikon PWA untuk shortcut/Add to Home Screen.
 - Responsive mobile-first.
 
 ## Preview
@@ -40,7 +42,7 @@ Untuk membuat tampilan repository makin menarik, tambahkan screenshot aplikasi d
 
 Kelola checklist harian dengan cepat. Task default sudah tersedia saat pertama kali aplikasi dibuka, dan kamu tetap bisa menambah atau menghapus task sesuai rutinitas pribadi.
 
-Task juga bisa diurutkan ulang dengan hold lalu drag ke atas atau ke bawah.
+Task juga bisa diurutkan ulang dengan hold sekitar 2 detik lalu drag ke atas atau ke bawah, supaya tidak gampang kegeser tanpa sengaja.
 
 ### Task Khusus Mingguan
 
@@ -65,18 +67,20 @@ Aplikasi menampilkan ringkasan produktivitas:
 
 ### History Read Only
 
-Pilih tanggal tertentu untuk melihat ulang:
+Pilih tanggal tertentu untuk melihat ulang riwayat harian:
 
 - Task pada hari tersebut
 - Status selesai atau belum
 - Progress hari itu
 - Daily notes yang pernah dibuat
 
-History bersifat read-only supaya data lama tidak mudah berubah tanpa sengaja.
+History juga punya mode rekap mingguan dan bulanan untuk melihat akumulasi progress per tanggal. Semua history bersifat read-only supaya data lama tidak mudah berubah tanpa sengaja.
 
 ### Export PNG
 
-Tombol **Export Progress** akan mengunduh report visual dalam format `.png`, berisi tanggal, statistik, daftar task, status task, dan daily notes.
+Tombol **Export Progress** akan mengunduh report visual hari ini dalam format `.png`, berisi tanggal, statistik, daftar task, status task, dan daily notes.
+
+Di bagian History, tombol **Export Riwayat** akan mengekspor mode yang sedang aktif: harian, mingguan, atau bulanan.
 
 ### Theme Switcher
 
@@ -97,6 +101,9 @@ level-up/
 |-- index.html
 |-- style.css
 |-- script.js
+|-- manifest.webmanifest
+|-- favicon.png
+|-- icons/
 `-- README.md
 ```
 

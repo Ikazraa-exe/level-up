@@ -38,6 +38,15 @@ const WEEK_DAYS = [
   { key: "sunday", label: "Minggu" },
 ];
 
+const DRAG_HOLD_DELAY_MS = 2400;
+const DRAG_CANCEL_DISTANCE = 12;
+
+const HISTORY_TITLES = {
+  daily: "Riwayat Harian",
+  weekly: "Rekap Mingguan",
+  monthly: "Rekap Bulanan",
+};
+
 const TOUR_STEPS = [
   {
     selector: ".hero-card",
@@ -47,17 +56,17 @@ const TOUR_STEPS = [
   {
     selector: ".progress-card",
     title: "Progress Harian",
-    description: "Bagian ini merangkum progress checklist wajib hari ini dalam bentuk persen dan progress bar.",
+    description: "Bagian ini merangkum progress daily task dan task khusus hari ini dalam bentuk persen dan progress bar.",
   },
   {
     selector: ".period-card",
     title: "Statistik Periodik",
-    description: "Pantau akumulasi checklist selesai untuk minggu berjalan dan bulan berjalan.",
+    description: "Pantau akumulasi daily task dan task khusus yang selesai untuk minggu berjalan dan bulan berjalan.",
   },
   {
     selector: ".task-card",
     title: "Daily Task",
-    description: "Ini rutinitas wajib harian. Kamu bisa tambah, checklist, hapus, export, dan drag untuk mengurutkan task.",
+    description: "Ini rutinitas wajib harian. Kamu bisa tambah, checklist, hapus, export, dan hold sekitar 2 detik untuk mengurutkan task.",
   },
   {
     selector: ".special-card",
@@ -72,7 +81,7 @@ const TOUR_STEPS = [
   {
     selector: ".history-card",
     title: "History",
-    description: "Pilih tanggal untuk melihat ulang task, status checklist, progress, dan catatan hari sebelumnya.",
+    description: "Pilih mode harian, mingguan, atau bulanan untuk melihat ulang progress dan export riwayat.",
   },
 ];
 
@@ -90,6 +99,7 @@ const state = {
   drag: null,
   suppressNextTaskClick: false,
   tourIndex: 0,
+  historyView: "daily",
 };
 
 const elements = {
@@ -117,12 +127,17 @@ const elements = {
   notesStatus: document.querySelector("#notesStatus"),
   exportButton: document.querySelector("#exportButton"),
   themeToggle: document.querySelector("#themeToggle"),
+  historyTitle: document.querySelector("#historyTitle"),
+  historyViewButtons: document.querySelectorAll("[data-history-view]"),
   historyDate: document.querySelector("#historyDate"),
+  historyExportButton: document.querySelector("#historyExportButton"),
+  historyPeriodList: document.querySelector("#historyPeriodList"),
   historyTaskList: document.querySelector("#historyTaskList"),
   historyTotal: document.querySelector("#historyTotal"),
   historyCompleted: document.querySelector("#historyCompleted"),
   historyRemaining: document.querySelector("#historyRemaining"),
   historyPercent: document.querySelector("#historyPercent"),
+  historyNotesLabel: document.querySelector("#historyNotesLabel"),
   historyNotes: document.querySelector("#historyNotes"),
   deleteDialog: document.querySelector("#deleteDialog"),
   deleteTaskName: document.querySelector("#deleteTaskName"),
@@ -170,7 +185,11 @@ function bindEvents() {
   elements.tourSkipButton.addEventListener("click", endTour);
   elements.tourNextButton.addEventListener("click", showNextTourStep);
   elements.tourOverlay.addEventListener("click", handleTourOverlayClick);
+  elements.historyViewButtons.forEach((button) => {
+    button.addEventListener("click", handleHistoryViewChange);
+  });
   elements.historyDate.addEventListener("change", renderHistory);
+  elements.historyExportButton.addEventListener("click", exportHistory);
   elements.cancelDeleteButton.addEventListener("click", closeDeleteDialog);
   elements.confirmDeleteButton.addEventListener("click", confirmDeleteTask);
   elements.deleteDialog.addEventListener("click", handleDialogBackdropClick);
@@ -265,7 +284,7 @@ function handleTaskPointerDown(event) {
     pointerId: event.pointerId,
     startY: event.clientY,
     started: false,
-    longPressTimer: window.setTimeout(beginTaskDrag, 160),
+    longPressTimer: window.setTimeout(beginTaskDrag, DRAG_HOLD_DELAY_MS),
   };
 
   window.addEventListener("pointermove", handleTaskPointerMove, { passive: false });
@@ -279,11 +298,13 @@ function handleTaskPointerMove(event) {
 
   const distance = Math.abs(event.clientY - drag.startY);
 
-  if (!drag.started && distance >= 8) {
-    beginTaskDrag();
-  }
+  if (!drag.started) {
+    if (distance >= DRAG_CANCEL_DISTANCE) {
+      cleanupTaskDrag();
+    }
 
-  if (!drag.started) return;
+    return;
+  }
 
   event.preventDefault();
   moveDraggedTask(event.clientY);
@@ -645,7 +666,7 @@ function renderSpecialTasks() {
     const addButton = document.createElement("button");
     addButton.className = "special-add-button";
     addButton.type = "submit";
-    addButton.textContent = "+";
+    addButton.innerHTML = getPlusIcon();
     addButton.setAttribute("aria-label", `Tambah task khusus ${day.label}`);
 
     form.append(input, addButton);
@@ -695,7 +716,11 @@ function handleTaskListClick(event) {
   if (event.target.matches(".task-check")) {
     toggleTaskStatus(taskId, event.target.checked);
     taskItem.classList.toggle("is-complete", event.target.checked);
+    if (event.target.checked) {
+      playChecklistAnimation(taskItem);
+    }
     updateStats();
+    renderHistory();
     return;
   }
 
@@ -724,6 +749,8 @@ function handleSpecialTaskSubmit(event) {
   input.value = "";
   saveSpecialTasks();
   renderSpecialTasks();
+  updateStats();
+  renderHistory();
 }
 
 function handleSpecialTaskClick(event) {
@@ -735,6 +762,11 @@ function handleSpecialTaskClick(event) {
 
     toggleSpecialTaskStatus(item.dataset.specialId, event.target.checked);
     item.classList.toggle("is-complete", event.target.checked);
+    if (event.target.checked) {
+      playChecklistAnimation(item);
+    }
+    updateStats();
+    renderHistory();
     return;
   }
 
@@ -765,6 +797,16 @@ function toggleSpecialTaskStatus(taskId, isComplete) {
   saveSpecialCompletions();
 }
 
+function playChecklistAnimation(item) {
+  item.classList.remove("is-check-animating");
+  void item.offsetWidth;
+  item.classList.add("is-check-animating");
+
+  window.setTimeout(() => {
+    item.classList.remove("is-check-animating");
+  }, 440);
+}
+
 function getTrashIcon() {
   return `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -773,6 +815,14 @@ function getTrashIcon() {
       <path d="M6 6l1 15h10l1-15" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
       <path d="M10 11v6" fill="none" stroke="currentColor" stroke-linecap="round" />
       <path d="M14 11v6" fill="none" stroke="currentColor" stroke-linecap="round" />
+    </svg>
+  `;
+}
+
+function getPlusIcon() {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round" />
     </svg>
   `;
 }
@@ -790,6 +840,14 @@ function toggleTaskStatus(taskId, isComplete) {
   state.completions[state.todayKey] = [...completedIds];
   saveCompletions();
   saveTaskSnapshots();
+}
+
+function handleHistoryViewChange(event) {
+  const view = event.currentTarget.dataset.historyView;
+  if (!HISTORY_TITLES[view]) return;
+
+  state.historyView = view;
+  renderHistory();
 }
 
 function openDeleteDialog(taskId, options = {}) {
@@ -887,6 +945,8 @@ function deleteSpecialTask(dayKey, taskId) {
   saveSpecialTasks();
   saveSpecialCompletions();
   renderSpecialTasks();
+  updateStats();
+  renderHistory();
 }
 
 function handleNotesInput() {
@@ -903,11 +963,9 @@ function handleNotesInput() {
 }
 
 function updateStats() {
-  const total = state.tasks.length;
-  const completed = getTodayCompletedIds().filter((taskId) =>
-    state.tasks.some((task) => task.id === taskId),
-  ).length;
-  const remaining = total - completed;
+  const total = getTotalTaskCountForDate(state.todayKey);
+  const completed = getCompletedTaskCountForDate(state.todayKey);
+  const remaining = Math.max(0, total - completed);
   const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
 
   elements.totalTasks.textContent = total;
@@ -930,15 +988,15 @@ function updatePeriodStats() {
 }
 
 function calculatePeriodStats(startDate, endDate) {
-  const taskIds = new Set(state.tasks.map((task) => task.id));
   const dateKeys = getDateKeysBetween(startDate, endDate);
-  const target = state.tasks.length * dateKeys.length;
-  const completed = dateKeys.reduce((total, dateKey) => {
-    const completedForDate = state.completions[dateKey] ?? [];
-    const validCompleted = completedForDate.filter((taskId) => taskIds.has(taskId));
-
-    return total + validCompleted.length;
-  }, 0);
+  const target = dateKeys.reduce(
+    (total, dateKey) => total + getTotalTaskCountForDate(dateKey),
+    0,
+  );
+  const completed = dateKeys.reduce(
+    (total, dateKey) => total + getCompletedTaskCountForDate(dateKey),
+    0,
+  );
   const percent = target === 0 ? 0 : Math.round((completed / target) * 100);
 
   return { completed, target, percent };
@@ -957,60 +1015,233 @@ function renderPeriodStats(period, stats) {
 }
 
 function renderHistory() {
-  const dateKey = elements.historyDate.value;
-  const historyTasks = getHistoryTasks(dateKey);
-  const completedIds = new Set(state.completions[dateKey] ?? []);
-  const completed = historyTasks.filter((task) => completedIds.has(task.id)).length;
-  const total = historyTasks.length;
-  const remaining = total - completed;
-  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+  const dateKey = elements.historyDate.value || state.todayKey;
 
-  elements.historyTotal.textContent = total;
-  elements.historyCompleted.textContent = completed;
-  elements.historyRemaining.textContent = remaining;
-  elements.historyPercent.textContent = `${percent}%`;
+  updateHistoryViewButtons();
+  elements.historyTitle.textContent = HISTORY_TITLES[state.historyView];
+
+  if (state.historyView === "daily") {
+    renderDailyHistory(getDailyHistoryData(dateKey));
+    return;
+  }
+
+  renderRecapHistory(getRecapHistoryData(dateKey, state.historyView));
+}
+
+function updateHistoryViewButtons() {
+  elements.historyViewButtons.forEach((button) => {
+    const isActive = button.dataset.historyView === state.historyView;
+
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function renderDailyHistory(data) {
+  renderHistorySummary(data.stats);
+  elements.historyPeriodList.hidden = true;
+  elements.historyTaskList.hidden = false;
   elements.historyTaskList.innerHTML = "";
+  elements.historyNotesLabel.textContent = "Daily Notes";
 
-  if (historyTasks.length === 0) {
+  if (data.items.length === 0) {
     elements.historyTaskList.innerHTML =
       '<li class="empty-state">Belum ada history task untuk tanggal ini.</li>';
   } else {
     const fragment = document.createDocumentFragment();
 
-    historyTasks.forEach((task) => {
-      const isComplete = completedIds.has(task.id);
+    data.items.forEach((task) => {
       const item = document.createElement("li");
-      item.className = `history-item${isComplete ? " is-complete" : ""}`;
+      item.className = `history-item${task.completed ? " is-complete" : ""}`;
 
       const status = document.createElement("span");
       status.className = "history-status";
       status.setAttribute("aria-hidden", "true");
 
+      const content = document.createElement("span");
+      content.className = "history-task-content";
+
       const taskName = document.createElement("span");
       taskName.className = "history-task-name";
       taskName.textContent = task.text;
 
+      const taskType = document.createElement("span");
+      taskType.className = "history-task-type";
+      taskType.textContent = task.type;
+
       const stateLabel = document.createElement("span");
       stateLabel.className = "history-state";
-      stateLabel.textContent = isComplete ? "Selesai" : "Belum";
+      stateLabel.textContent = task.completed ? "Selesai" : "Belum";
 
-      item.append(status, taskName, stateLabel);
+      content.append(taskName, taskType);
+      item.append(status, content, stateLabel);
       fragment.append(item);
     });
 
     elements.historyTaskList.append(fragment);
   }
 
-  elements.historyNotes.textContent =
-    state.notes[dateKey]?.trim() || "Belum ada catatan untuk tanggal ini.";
+  elements.historyNotes.textContent = data.notes;
+}
+
+function renderRecapHistory(data) {
+  renderHistorySummary(data.stats);
+  elements.historyTaskList.hidden = true;
+  elements.historyPeriodList.hidden = false;
+  elements.historyPeriodList.innerHTML = "";
+  elements.historyNotesLabel.textContent = "Catatan Dalam Periode";
+  elements.historyNotes.textContent = data.notesSummary;
+
+  const fragment = document.createDocumentFragment();
+
+  data.days.forEach((day) => {
+    const item = document.createElement("article");
+    item.className = "history-period-item";
+
+    const header = document.createElement("div");
+    header.className = "history-period-heading";
+
+    const title = document.createElement("strong");
+    title.textContent = day.shortLabel;
+
+    const percent = document.createElement("span");
+    percent.textContent = `${day.stats.percent}%`;
+
+    const progress = document.createElement("div");
+    progress.className = "mini-progress";
+    progress.setAttribute("aria-label", `Progress ${day.shortLabel}`);
+
+    const fill = document.createElement("div");
+    fill.className = "mini-progress-fill";
+    fill.style.width = `${day.stats.percent}%`;
+
+    const meta = document.createElement("p");
+    meta.className = "history-period-meta";
+    meta.textContent = `${day.stats.completed}/${day.stats.total} checklist selesai`;
+
+    const note = document.createElement("p");
+    note.className = "history-period-note";
+    note.textContent = getRecapDayDescription(day);
+
+    header.append(title, percent);
+    progress.append(fill);
+    item.append(header, progress, meta, note);
+    fragment.append(item);
+  });
+
+  elements.historyPeriodList.append(fragment);
+}
+
+function renderHistorySummary(stats) {
+  elements.historyTotal.textContent = stats.total;
+  elements.historyCompleted.textContent = stats.completed;
+  elements.historyRemaining.textContent = stats.remaining;
+  elements.historyPercent.textContent = `${stats.percent}%`;
+}
+
+function getDailyHistoryData(dateKey) {
+  const completedIds = new Set(state.completions[dateKey] ?? []);
+  const completedSpecialIds = new Set(state.specialCompletions[dateKey] ?? []);
+  const dailyTasks = getHistoryTasks(dateKey).map((task) => ({
+    id: task.id,
+    text: task.text,
+    type: "Daily Task",
+    completed: completedIds.has(task.id),
+  }));
+  const specialTasks = getSpecialTasksForDateKey(dateKey).map((task) => ({
+    id: task.id,
+    text: task.text,
+    type: "Task Khusus",
+    completed: completedSpecialIds.has(task.id),
+  }));
+  const items = [...dailyTasks, ...specialTasks];
+  const notesRaw = state.notes[dateKey]?.trim() ?? "";
+
+  return {
+    mode: "daily",
+    dateKey,
+    formattedDate: formatFullDate(dateKey),
+    shortLabel: formatShortDate(dateKey),
+    canvasEyebrow: "RIWAYAT HARIAN",
+    canvasTitle: "DAILY LEVEL UP",
+    progressLabel: "Progress",
+    tasks: dailyTasks.map(({ text, completed }) => ({ text, completed })),
+    specialTasks: specialTasks.map(({ text, completed }) => ({ text, completed })),
+    items,
+    notesRaw,
+    notes: notesRaw || "Belum ada catatan untuk tanggal ini.",
+    stats: getStatsFromItems(items),
+  };
+}
+
+function getRecapHistoryData(dateKey, mode) {
+  const selectedDate = parseDateKey(dateKey);
+  const startDate = mode === "weekly" ? getStartOfWeek(selectedDate) : getStartOfMonth(selectedDate);
+  const endDate = selectedDate;
+  const days = getDateKeysBetween(startDate, endDate).map(getDailyHistoryData);
+  const total = days.reduce((sum, day) => sum + day.stats.total, 0);
+  const completed = days.reduce((sum, day) => sum + day.stats.completed, 0);
+  const stats = createStats(total, completed);
+  const periodLabel =
+    mode === "weekly"
+      ? `${formatShortDate(getDateKey(startDate))} - ${formatShortDate(getDateKey(endDate))}`
+      : formatMonthLabel(dateKey);
+  const notesSummary = days
+    .filter((day) => day.notesRaw)
+    .map((day) => `${day.shortLabel}\n${day.notesRaw}`)
+    .join("\n\n");
+
+  return {
+    mode,
+    title: HISTORY_TITLES[mode],
+    dateKey,
+    formattedDate: periodLabel,
+    days,
+    notesSummary: notesSummary || "Belum ada catatan dalam periode ini.",
+    stats,
+  };
+}
+
+function getStatsFromItems(items) {
+  return createStats(
+    items.length,
+    items.filter((item) => item.completed).length,
+  );
+}
+
+function createStats(total, completed) {
+  const remaining = Math.max(0, total - completed);
+  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+
+  return { total, completed, remaining, percent };
+}
+
+function getRecapDayDescription(day) {
+  if (day.stats.total === 0) {
+    return "Belum ada task pada tanggal ini.";
+  }
+
+  const unfinishedTasks = day.items.filter((item) => !item.completed);
+
+  if (unfinishedTasks.length === 0) {
+    return day.notesRaw ? "Semua checklist selesai. Ada catatan harian." : "Semua checklist selesai.";
+  }
+
+  const preview = unfinishedTasks
+    .slice(0, 3)
+    .map((task) => task.text)
+    .join(", ");
+  const moreCount = unfinishedTasks.length - 3;
+
+  return `Belum: ${preview}${moreCount > 0 ? ` +${moreCount} lagi` : ""}`;
 }
 
 function exportProgress() {
   const completedIds = getTodayCompletedIds();
   const completedSpecialIds = getTodaySpecialCompletedIds();
-  const total = state.tasks.length;
-  const completed = state.tasks.filter((task) => completedIds.includes(task.id)).length;
-  const remaining = total - completed;
+  const total = getTotalTaskCountForDate(state.todayKey);
+  const completed = getCompletedTaskCountForDate(state.todayKey);
+  const remaining = Math.max(0, total - completed);
   const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
   const exportData = {
     date: state.todayKey,
@@ -1028,10 +1259,25 @@ function exportProgress() {
   };
 
   const canvas = createProgressCanvas(exportData);
+
+  downloadCanvas(canvas, `daily-level-up-${state.todayKey}.png`);
+}
+
+function exportHistory() {
+  const dateKey = elements.historyDate.value || state.todayKey;
+  const canvas =
+    state.historyView === "daily"
+      ? createProgressCanvas(getDailyHistoryData(dateKey))
+      : createRecapCanvas(getRecapHistoryData(dateKey, state.historyView));
+
+  downloadCanvas(canvas, `daily-level-up-${state.historyView}-${dateKey}.png`);
+}
+
+function downloadCanvas(canvas, filename) {
   const link = document.createElement("a");
 
   link.href = canvas.toDataURL("image/png");
-  link.download = `daily-level-up-${state.todayKey}.png`;
+  link.download = filename;
   document.body.append(link);
   link.click();
   link.remove();
@@ -1108,6 +1354,153 @@ function createProgressCanvas(data) {
   return canvas;
 }
 
+function createRecapCanvas(data) {
+  if (data.mode === "monthly") {
+    return createMonthlyRecapCanvas(data);
+  }
+
+  const width = 1200;
+  const padding = 80;
+  const contentWidth = width - padding * 2;
+  const dayRows = data.days.map((day) => {
+    const description = getRecapDayDescription(day);
+    const lines = wrapCanvasText(description, contentWidth - 320, "24px Arial");
+    const descriptionTop = 108;
+    const descriptionLineHeight = 30;
+    const bottomPadding = 28;
+
+    return {
+      ...day,
+      description,
+      lines,
+      descriptionTop,
+      descriptionLineHeight,
+      height: Math.max(
+        154,
+        descriptionTop + Math.max(1, lines.length) * descriptionLineHeight + bottomPadding,
+      ),
+    };
+  });
+  const rowsHeight =
+    dayRows.length === 0
+      ? 74
+      : dayRows.reduce((total, day) => total + day.height, 0) +
+        (dayRows.length - 1) * 14;
+  const noteLines = wrapCanvasText(data.notesSummary, contentWidth - 56, "28px Arial");
+  const notesBoxHeight = Math.max(130, noteLines.length * 36 + 62);
+  const height = Math.max(
+    1080,
+    padding + 275 + 48 + 126 + 72 + rowsHeight + 66 + notesBoxHeight + 80,
+  );
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  canvas.width = width;
+  canvas.height = height;
+
+  drawCanvasBackground(context, width, height);
+
+  let y = padding;
+  y = drawCanvasHeader(
+    context,
+    {
+      formattedDate: data.formattedDate,
+      stats: data.stats,
+      canvasEyebrow: data.title.toUpperCase(),
+      canvasTitle: "DAILY LEVEL UP",
+      progressLabel: "Progress",
+    },
+    padding,
+    contentWidth,
+    y,
+  );
+  y += 48;
+  y = drawCanvasStats(context, data.stats, padding, contentWidth, y);
+  y += 72;
+  y = drawCanvasRecapDays(context, dayRows, padding, contentWidth, y);
+  y += 66;
+  drawCanvasNotes(
+    context,
+    noteLines,
+    padding,
+    contentWidth,
+    y,
+    notesBoxHeight,
+    "CATATAN PERIODE",
+  );
+
+  return canvas;
+}
+
+function createMonthlyRecapCanvas(data) {
+  const width = 1200;
+  const padding = 80;
+  const contentWidth = width - padding * 2;
+  const gap = 12;
+  const weekdayHeight = 36;
+  const cellWidth = (contentWidth - gap * 6) / 7;
+  const cellHeight = 112;
+  const firstDate = getStartOfMonth(parseDateKey(data.dateKey));
+  const monthOffset = getMondayFirstDayOffset(firstDate);
+  const rowCount = Math.max(1, Math.ceil((monthOffset + data.days.length) / 7));
+  const gridHeight = weekdayHeight + rowCount * cellHeight + (rowCount - 1) * gap;
+  const noteLines = wrapCanvasText(data.notesSummary, contentWidth - 56, "28px Arial");
+  const notesBoxHeight = Math.max(130, noteLines.length * 36 + 62);
+  const height = Math.max(
+    1380,
+    padding + 275 + 48 + 126 + 72 + gridHeight + 66 + notesBoxHeight + 80,
+  );
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  canvas.width = width;
+  canvas.height = height;
+
+  drawCanvasBackground(context, width, height);
+
+  let y = padding;
+  y = drawCanvasHeader(
+    context,
+    {
+      formattedDate: data.formattedDate,
+      stats: data.stats,
+      canvasEyebrow: data.title.toUpperCase(),
+      canvasTitle: "DAILY LEVEL UP",
+      progressLabel: "Progress",
+    },
+    padding,
+    contentWidth,
+    y,
+  );
+  y += 48;
+  y = drawCanvasStats(context, data.stats, padding, contentWidth, y);
+  y += 72;
+  y = drawCanvasMonthlyGrid(
+    context,
+    data.days,
+    padding,
+    contentWidth,
+    y,
+    monthOffset,
+    cellWidth,
+    cellHeight,
+    gap,
+    weekdayHeight,
+  );
+  y += 66;
+  drawCanvasNotes(
+    context,
+    noteLines,
+    padding,
+    contentWidth,
+    y,
+    notesBoxHeight,
+    "CATATAN PERIODE",
+  );
+
+  return canvas;
+}
+
 function drawCanvasBackground(context, width, height) {
   context.fillStyle = "#f6fbf8";
   context.fillRect(0, 0, width, height);
@@ -1126,11 +1519,11 @@ function drawCanvasBackground(context, width, height) {
 function drawCanvasHeader(context, data, padding, contentWidth, y) {
   context.fillStyle = "#0f766e";
   context.font = "700 26px Arial";
-  context.fillText("PERSONAL PRODUCTIVITY", padding, y);
+  context.fillText(data.canvasEyebrow ?? "PERSONAL PRODUCTIVITY", padding, y);
 
   context.fillStyle = "#111827";
   context.font = "800 76px Arial";
-  context.fillText("DAILY LEVEL UP", padding, y + 86);
+  context.fillText(data.canvasTitle ?? "DAILY LEVEL UP", padding, y + 86);
 
   context.fillStyle = "#64748b";
   context.font = "28px Arial";
@@ -1138,7 +1531,7 @@ function drawCanvasHeader(context, data, padding, contentWidth, y) {
 
   context.fillStyle = "#334155";
   context.font = "32px Arial";
-  context.fillText(`Progress hari ini: ${data.stats.percent}%`, padding, y + 196);
+  context.fillText(`${data.progressLabel ?? "Progress hari ini"}: ${data.stats.percent}%`, padding, y + 196);
 
   drawCanvasProgress(context, padding, y + 226, contentWidth, 20, data.stats.percent);
 
@@ -1249,6 +1642,147 @@ function drawCanvasSpecialTasks(context, specialRows, padding, contentWidth, y) 
   return currentY - 14;
 }
 
+function drawCanvasRecapDays(context, dayRows, padding, contentWidth, y) {
+  context.fillStyle = "#0f766e";
+  context.font = "700 24px Arial";
+  context.fillText("RINCIAN PERIODE", padding, y);
+
+  let currentY = y + 28;
+
+  if (dayRows.length === 0) {
+    drawRoundRect(context, padding, currentY, contentWidth, 74, 14, "#ffffff", "#d8e0e8");
+    context.fillStyle = "#64748b";
+    context.font = "28px Arial";
+    context.fillText("Belum ada data pada periode ini.", padding + 28, currentY + 46);
+    return currentY + 74;
+  }
+
+  dayRows.forEach((day) => {
+    drawRoundRect(context, padding, currentY, contentWidth, day.height, 14, "#ffffff", "#d8e0e8");
+
+    context.fillStyle = "#111827";
+    context.font = "700 28px Arial";
+    context.fillText(day.shortLabel, padding + 28, currentY + 42);
+
+    context.fillStyle = "#0f766e";
+    context.font = "800 28px Arial";
+    context.textAlign = "right";
+    context.fillText(`${day.stats.percent}%`, padding + contentWidth - 28, currentY + 42);
+    context.textAlign = "left";
+
+    drawCanvasProgress(
+      context,
+      padding + contentWidth - 302,
+      currentY + 58,
+      274,
+      12,
+      day.stats.percent,
+    );
+
+    context.fillStyle = "#64748b";
+    context.font = "23px Arial";
+    context.fillText(
+      `${day.stats.completed}/${day.stats.total} checklist selesai`,
+      padding + 28,
+      currentY + 78,
+    );
+
+    context.fillStyle = "#334155";
+    context.font = "24px Arial";
+    day.lines.forEach((line, index) => {
+      context.fillText(
+        line,
+        padding + 28,
+        currentY + day.descriptionTop + index * day.descriptionLineHeight,
+      );
+    });
+
+    currentY += day.height + 14;
+  });
+
+  return currentY - 14;
+}
+
+function drawCanvasMonthlyGrid(
+  context,
+  days,
+  padding,
+  contentWidth,
+  y,
+  monthOffset,
+  cellWidth,
+  cellHeight,
+  gap,
+  weekdayHeight,
+) {
+  context.fillStyle = "#0f766e";
+  context.font = "700 24px Arial";
+  context.fillText("RINCIAN BULANAN", padding, y);
+
+  const weekdays = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
+  const weekdayY = y + 52;
+
+  context.font = "700 20px Arial";
+  context.fillStyle = "#64748b";
+  weekdays.forEach((label, index) => {
+    const x = padding + index * (cellWidth + gap);
+    context.fillText(label, x + 12, weekdayY);
+  });
+
+  const gridY = y + 28 + weekdayHeight;
+
+  days.forEach((day, index) => {
+    const position = monthOffset + index;
+    const column = position % 7;
+    const row = Math.floor(position / 7);
+    const x = padding + column * (cellWidth + gap);
+    const currentY = gridY + row * (cellHeight + gap);
+    const dayNumber = parseDateKey(day.dateKey).getDate();
+    const isCompleteDay = day.stats.total > 0 && day.stats.percent === 100;
+    const fill = isCompleteDay ? "#ecfdf5" : "#ffffff";
+    const stroke = isCompleteDay ? "#86efac" : "#d8e0e8";
+    const status =
+      day.stats.total === 0
+        ? "Kosong"
+        : isCompleteDay
+          ? "Selesai"
+          : `${day.stats.remaining} belum`;
+
+    drawRoundRect(context, x, currentY, cellWidth, cellHeight, 14, fill, stroke);
+
+    context.fillStyle = "#111827";
+    context.font = "800 28px Arial";
+    context.fillText(String(dayNumber), x + 14, currentY + 34);
+
+    context.fillStyle = isCompleteDay ? "#047857" : "#0f766e";
+    context.font = "800 23px Arial";
+    context.textAlign = "right";
+    context.fillText(`${day.stats.percent}%`, x + cellWidth - 14, currentY + 34);
+    context.textAlign = "left";
+
+    drawCanvasProgress(context, x + 14, currentY + 50, cellWidth - 28, 10, day.stats.percent);
+
+    context.fillStyle = "#64748b";
+    context.font = "19px Arial";
+    context.fillText(
+      `${day.stats.completed}/${day.stats.total} selesai`,
+      x + 14,
+      currentY + 78,
+    );
+
+    context.fillStyle = isCompleteDay ? "#047857" : "#334155";
+    context.font = "700 20px Arial";
+    context.fillText(status, x + 14, currentY + 102);
+  });
+
+  return gridY + Math.max(1, Math.ceil((monthOffset + days.length) / 7)) * (cellHeight + gap) - gap;
+}
+
+function getMondayFirstDayOffset(date) {
+  const day = date.getDay();
+  return day === 0 ? 6 : day - 1;
+}
+
 function drawCanvasTaskStatus(context, x, y, isComplete) {
   context.beginPath();
   context.arc(x, y, 16, 0, Math.PI * 2);
@@ -1283,10 +1817,18 @@ function drawCanvasStatusPill(context, x, y, text, isComplete) {
   context.textAlign = "left";
 }
 
-function drawCanvasNotes(context, noteLines, padding, contentWidth, y, notesBoxHeight) {
+function drawCanvasNotes(
+  context,
+  noteLines,
+  padding,
+  contentWidth,
+  y,
+  notesBoxHeight,
+  title = "DAILY NOTES",
+) {
   context.fillStyle = "#0f766e";
   context.font = "700 24px Arial";
-  context.fillText("DAILY NOTES", padding, y);
+  context.fillText(title, padding, y);
 
   drawRoundRect(context, padding, y + 28, contentWidth, notesBoxHeight, 14, "#ffffff", "#d8e0e8");
 
@@ -1304,7 +1846,7 @@ function drawCanvasProgress(context, x, y, width, height, percent) {
 
   const fillGradient = context.createLinearGradient(x, y, x + width, y);
   fillGradient.addColorStop(0, "#0f766e");
-  fillGradient.addColorStop(1, "#d97706");
+  fillGradient.addColorStop(1, "#34d399");
   drawRoundRect(
     context,
     x,
@@ -1393,12 +1935,43 @@ function getTodayCompletedIds() {
 }
 
 function getTodaySpecialTasks() {
-  const todayDayKey = getWeekDayKey(parseDateKey(state.todayKey));
-  return state.specialTasks[todayDayKey] ?? [];
+  return getSpecialTasksForDateKey(state.todayKey);
 }
 
 function getTodaySpecialCompletedIds() {
   return state.specialCompletions[state.todayKey] ?? [];
+}
+
+function getTotalTaskCountForDate(dateKey) {
+  return state.tasks.length + getSpecialTasksForDateKey(dateKey).length;
+}
+
+function getCompletedTaskCountForDate(dateKey) {
+  return (
+    getCompletedDailyTaskCountForDate(dateKey) +
+    getCompletedSpecialTaskCountForDate(dateKey)
+  );
+}
+
+function getCompletedDailyTaskCountForDate(dateKey) {
+  const taskIds = new Set(state.tasks.map((task) => task.id));
+  const completedIds = state.completions[dateKey] ?? [];
+
+  return completedIds.filter((taskId) => taskIds.has(taskId)).length;
+}
+
+function getCompletedSpecialTaskCountForDate(dateKey) {
+  const specialTaskIds = new Set(
+    getSpecialTasksForDateKey(dateKey).map((task) => task.id),
+  );
+  const completedIds = state.specialCompletions[dateKey] ?? [];
+
+  return completedIds.filter((taskId) => specialTaskIds.has(taskId)).length;
+}
+
+function getSpecialTasksForDateKey(dateKey) {
+  const dayKey = getWeekDayKey(parseDateKey(dateKey));
+  return state.specialTasks[dayKey] ?? [];
 }
 
 function getHistoryTasks(dateKey) {
@@ -1478,8 +2051,10 @@ function handleDateChange() {
   state.todayKey = currentDateKey;
   ensureCompletionBucket(state.todayKey);
   ensureSpecialCompletionBucket(state.todayKey);
+  ensureTaskSnapshot(state.todayKey);
   saveCompletions();
   saveSpecialCompletions();
+  saveTaskSnapshots();
   renderHeader();
   renderTasks();
   renderSpecialTasks();
@@ -1520,6 +2095,34 @@ function addDays(date, days) {
 function parseDateKey(dateKey) {
   const [year, month, day] = dateKey.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+function formatFullDate(dateKey) {
+  return formatDate(dateKey, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function formatShortDate(dateKey) {
+  return formatDate(dateKey, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function formatMonthLabel(dateKey) {
+  return formatDate(dateKey, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function formatDate(dateKey, options) {
+  return new Intl.DateTimeFormat("id-ID", options).format(parseDateKey(dateKey));
 }
 
 function getStartOfWeek(date) {
@@ -1563,12 +2166,17 @@ function toggleTheme() {
 }
 
 function applyTheme(theme) {
+  document.body.classList.add("is-theme-switching");
   document.body.dataset.theme = theme;
   localStorage.setItem(STORAGE_KEYS.theme, theme);
   elements.themeToggle.setAttribute(
     "aria-label",
     theme === "light" ? "Ganti ke dark mode" : "Ganti ke light mode",
   );
+
+  window.requestAnimationFrame(() => {
+    document.body.classList.remove("is-theme-switching");
+  });
 }
 
 function readFromStorage(key, fallback) {

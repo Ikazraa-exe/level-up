@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DAILY LEVEL UP</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.png" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="application-name" content="DAILY LEVEL UP" />
+    <meta name="apple-mobile-web-app-title" content="DAILY LEVEL UP" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body data-theme="dark">
@@ -172,9 +179,25 @@
             <p class="eyebrow">History</p>
             <h2 id="historyTitle">Riwayat Harian</h2>
           </div>
-          <div class="history-date-control">
-            <label for="historyDate">Tanggal</label>
-            <input id="historyDate" type="date" />
+          <div class="history-controls">
+            <div class="history-view-toggle" aria-label="Pilih tampilan history">
+              <button class="is-active" type="button" data-history-view="daily" aria-pressed="true">
+                Harian
+              </button>
+              <button type="button" data-history-view="weekly" aria-pressed="false">
+                Mingguan
+              </button>
+              <button type="button" data-history-view="monthly" aria-pressed="false">
+                Bulanan
+              </button>
+            </div>
+            <div class="history-date-control">
+              <label for="historyDate">Tanggal</label>
+              <input id="historyDate" type="date" />
+            </div>
+            <button id="historyExportButton" class="secondary-button history-export-button" type="button">
+              Export Riwayat
+            </button>
           </div>
         </div>
 
@@ -197,10 +220,11 @@
           </article>
         </div>
 
+        <div id="historyPeriodList" class="history-period-list" aria-live="polite" hidden></div>
         <ul id="historyTaskList" class="history-list" aria-live="polite"></ul>
 
         <article class="history-notes">
-          <span>Daily Notes</span>
+          <span id="historyNotesLabel">Daily Notes</span>
           <p id="historyNotes">Belum ada catatan untuk tanggal ini.</p>
         </article>
       </section>
@@ -213,7 +237,7 @@
       <button id="toTopButton" class="floating-button" type="button" aria-label="Kembali ke atas">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 19V5" fill="none" stroke="currentColor" stroke-linecap="round" />
-          <path d="M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="m5 12 7-7 7 7" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
     </div>
